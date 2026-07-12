@@ -91,6 +91,11 @@ def init_db():
                 FOREIGN KEY(job_id) REFERENCES jobs(id)
             )
         """)
+        
+        # Create indexes for performance optimization
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_runs_job_id_start_time ON job_runs(job_id, start_time DESC)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_runs_status ON job_runs(status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_runs_start_time ON job_runs(start_time DESC)")
         conn.commit()
 
 def upsert_job(job: JobSchema):
@@ -143,18 +148,34 @@ def get_all_jobs() -> List[Dict[str, Any]]:
         cursor.execute("SELECT * FROM jobs ORDER BY name ASC")
         return [dict(row) for row in cursor.fetchall()]
 
-def get_job_runs(limit: int = 100, status: Optional[str] = None) -> List[Dict[str, Any]]:
+def get_job_runs(limit: int = 100, status: Optional[str] = None, job_id: Optional[str] = None) -> List[Dict[str, Any]]:
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        query = "SELECT * FROM job_runs"
+        query = """
+            SELECT jr.id, jr.job_id, jr.job_name, jr.status, jr.start_time, jr.end_time, 
+                   jr.duration, jr.rows_read, jr.rows_written, jr.error_message, 
+                   jr.collected_at, j.source
+            FROM job_runs jr
+            JOIN jobs j ON jr.job_id = j.id
+        """
+        conditions = []
         params = []
         if status:
-            query += " WHERE status = ?"
+            conditions.append("jr.status = ?")
             params.append(status)
-        query += " ORDER BY start_time DESC LIMIT ?"
+        if job_id:
+            conditions.append("jr.job_id = ?")
+            params.append(job_id)
+            
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+            
+        query += " ORDER BY jr.start_time DESC LIMIT ?"
         params.append(limit)
+        
         cursor.execute(query, params)
         return [dict(row) for row in cursor.fetchall()]
+
 
 def get_kpis() -> KPISchema:
     with get_db_connection() as conn:

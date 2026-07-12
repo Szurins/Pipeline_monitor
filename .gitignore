@@ -25,3 +25,7 @@ htmlcov/
 # IDE / Editor folders
 .vscode/
 .idea/
+
+# AI context files
+ai_readme.md
+

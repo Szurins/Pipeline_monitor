@@ -169,13 +169,14 @@ async def get_metrics():
         raise HTTPException(status_code=500, detail="Database fetch failed")
 
 @app.get("/api/runs")
-async def get_runs(limit: int = 50, status: Optional[str] = None):
-    """Returns list of job runs filtered by status."""
+async def get_runs(limit: int = 50, status: Optional[str] = None, job_id: Optional[str] = None):
+    """Returns list of job runs filtered by status and/or job_id."""
     try:
-        return get_job_runs(limit=limit, status=status)
+        return get_job_runs(limit=limit, status=status, job_id=job_id)
     except Exception as e:
         logger.error(f"Error fetching runs: {e}")
         raise HTTPException(status_code=500, detail="Database fetch failed")
+
 
 @app.get("/api/duration-history")
 async def get_durations(limit: int = 20):
@@ -184,6 +185,60 @@ async def get_durations(limit: int = 20):
         return get_duration_history(limit=limit)
     except Exception as e:
         logger.error(f"Error fetching durations: {e}")
+        raise HTTPException(status_code=500, detail="Database fetch failed")
+
+@app.get("/api/anomalies")
+async def get_anomalies():
+    """Detects and returns pipeline runs that are weirdly long compared to their average durations."""
+    try:
+        from src.database import get_db_connection
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Query average duration per job from successful runs
+            cursor.execute("""
+                SELECT job_id, job_name, AVG(duration) as avg_duration, COUNT(*) as run_count
+                FROM job_runs
+                WHERE status = 'SUCCESS'
+                GROUP BY job_id
+            """)
+            stats = {row["job_id"]: {"avg_duration": row["avg_duration"], "job_name": row["job_name"]} for row in cursor.fetchall()}
+            
+            # Query the latest run for each job
+            cursor.execute("""
+                SELECT id, job_id, job_name, status, duration, start_time, rows_read, rows_written
+                FROM job_runs
+                WHERE id IN (
+                    SELECT MAX(id) FROM job_runs GROUP BY job_id
+                )
+            """)
+            latest_runs = cursor.fetchall()
+            
+            anomalies = []
+            for run in latest_runs:
+                job_id = run["job_id"]
+                if job_id in stats:
+                    avg_dur = stats[job_id]["avg_duration"]
+                    current_dur = run["duration"]
+                    
+                    # Flag as anomaly if the current duration is > 1.5 times the average (and at least 10 seconds long)
+                    if avg_dur > 0 and current_dur > 1.5 * avg_dur and current_dur > 10:
+                        deviation_percent = round(((current_dur - avg_dur) / avg_dur) * 100, 1)
+                        anomalies.append({
+                            "run_id": run["id"],
+                            "job_id": job_id,
+                            "job_name": run["job_name"],
+                            "status": run["status"],
+                            "duration": current_dur,
+                            "avg_duration": round(avg_dur, 2),
+                            "deviation_percent": deviation_percent,
+                            "start_time": run["start_time"],
+                            "rows_processed": run["rows_read"] + run["rows_written"]
+                        })
+            
+            return anomalies
+    except Exception as e:
+        logger.error(f"Error computing anomalies: {e}")
         raise HTTPException(status_code=500, detail="Database fetch failed")
 
 @app.get("/api/test-connection")

@@ -98,8 +98,8 @@ class DatabricksCollector(BaseCollector):
 
         runs_list = []
         try:
-            # Fetch last 50 runs to check status updates
-            for run in self.client.jobs.list_runs(limit=50, expand_tasks=True):
+            # Fetch last 25 runs to check status updates
+            for run in self.client.jobs.list_runs(limit=25, expand_tasks=True):
                 # Process start time
                 start_time_iso = datetime.utcfromtimestamp(run.start_time / 1000.0).isoformat() + "Z"
                 
