@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pipeline Monitor & Metadata Dashboard</title>
+    <!-- Google Fonts: Inter and Outfit -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Chart.js for data visualization -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0b0f19;
+            --bg-secondary: #131b2e;
+            --bg-card: rgba(22, 30, 49, 0.6);
+            --border-card: rgba(255, 255, 255, 0.07);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            
+            /* Status Colors */
+            --color-success: #10b981;
+            --color-success-bg: rgba(16, 185, 129, 0.1);
+            --color-success-border: rgba(16, 185, 129, 0.25);
+            
+            --color-failed: #ef4444;
+            --color-failed-bg: rgba(239, 68, 68, 0.1);
+            --color-failed-border: rgba(239, 68, 68, 0.25);
+            
+            --color-running: #0ea5e9;
+            --color-running-bg: rgba(14, 165, 233, 0.1);
+            --color-running-border: rgba(14, 165, 233, 0.25);
+            
+            --color-pending: #f59e0b;
+            --color-pending-bg: rgba(245, 158, 11, 0.1);
+            --color-pending-border: rgba(245, 158, 11, 0.25);
+
+            --accent-primary: #6366f1;
+            --accent-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+            --accent-glow: rgba(99, 102, 241, 0.15);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 2rem;
+            line-height: 1.5;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.08) 0px, transparent 50%),
+                radial-gradient(at 100% 0%, rgba(168, 85, 247, 0.08) 0px, transparent 50%),
+                radial-gradient(at 50% 100%, rgba(14, 165, 233, 0.05) 0px, transparent 50%);
+            background-attachment: fixed;
+        }
+
+        /* Container Layout */
+        .dashboard-container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        /* Header Styles */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2.5rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 1px solid var(--border-card);
+        }
+
+        .header-title h1 {
+            font-family: 'Outfit', sans-serif;
+            font-weight: 800;
+            font-size: 2rem;
+            background: linear-gradient(to right, #ffffff, #94a3b8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.025em;
+        }
+
+        .header-title p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            margin-top: 0.25rem;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        /* Button Styles */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: var(--accent-gradient);
+            color: white;
+            border: none;
+            padding: 0.625rem 1.25rem;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 14px 0 var(--accent-glow);
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px 0 rgba(99, 102, 241, 0.3);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none !important;
+            box-shadow: none !important;
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-card);
+            color: var(--text-primary);
+            box-shadow: none;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.2);
+            box-shadow: none;
+        }
+
+        /* KPI Cards Grid */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2.5rem;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-card);
+            border-radius: 16px;
+            padding: 1.5rem;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card:hover {
+            transform: translateY(-4px);
+            border-color: rgba(255, 255, 255, 0.12);
+            box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.3);
+        }
+
+        .kpi-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent-gradient);
+        }
+
+        .kpi-title {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+        }
+
+        .kpi-value {
+            font-family: 'Outfit', sans-serif;
+            font-size: 2.25rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            line-height: 1.1;
+        }
+
+        .kpi-sub {
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            margin-top: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        /* Main Section Layout */
+        .dashboard-content {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 2rem;
+        }
+
+        @media (min-width: 1024px) {
+            .dashboard-content {
+                grid-template-columns: 1.2fr 0.8fr;
+            }
+        }
+
+        /* Section Headings */
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.25rem;
+        }
+
+        .section-header h2 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        /* Filter Controls */
+        .filters {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .filter-btn {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-card);
+            color: var(--text-secondary);
+            padding: 0.4rem 0.8rem;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+
+        .filter-btn:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-primary);
+        }
+
+        .filter-btn.active {
+            background: var(--accent-gradient);
+            color: white;
+            border-color: transparent;
+        }
+
+        /* Run History Table styling */
+        .table-container {
+            overflow-x: auto;
+            width: 100%;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 0.9rem;
+        }
+
+        th {
+            padding: 1rem;
+            color: var(--text-secondary);
+            font-weight: 600;
+            border-bottom: 1px solid var(--border-card);
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        td {
+            padding: 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            color: var(--text-primary);
+            white-space: nowrap;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover td {
+            background: rgba(255, 255, 255, 0.01);
+        }
+
+        /* Badges */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.25rem 0.625rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.025em;
+        }
+
+        .badge-success {
+            background-color: var(--color-success-bg);
+            color: var(--color-success);
+            border: 1px solid var(--color-success-border);
+        }
+
+        .badge-failed {
+            background-color: var(--color-failed-bg);
+            color: var(--color-failed);
+            border: 1px solid var(--color-failed-border);
+        }
+
+        .badge-running {
+            background-color: var(--color-running-bg);
+            color: var(--color-running);
+            border: 1px solid var(--color-running-border);
+            position: relative;
+        }
+
+        .badge-running::before {
+            content: '';
+            width: 6px;
+            height: 6px;
+            background-color: var(--color-running);
+            border-radius: 50%;
+            display: inline-block;
+            animation: pulse-dot 1.5s infinite;
+        }
+
+        @keyframes pulse-dot {
+            0% { transform: scale(0.8); opacity: 0.5; }
+            50% { transform: scale(1.3); opacity: 1; }
+            100% { transform: scale(0.8); opacity: 0.5; }
+        }
+
+        /* Error message tooltips/popovers */
+        .error-cell {
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: var(--color-failed);
+            cursor: pointer;
+            text-decoration: underline dotted;
+        }
+
+        /* Code block error view style */
+        .error-log {
+            font-family: 'Courier New', Courier, monospace;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 0.75rem;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            color: #f87171;
+            white-space: pre-wrap;
+            margin-top: 0.5rem;
+        }
+
+        /* Charts / Visualization */
+        .chart-card {
+            min-height: 380px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chart-wrapper {
+            flex-grow: 1;
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Modal / Dialog */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 100;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-card);
+            border-radius: 16px;
+            padding: 2rem;
+            width: 90%;
+            max-width: 600px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+            animation: modalFadeIn 0.3s ease;
+        }
+
+        @keyframes modalFadeIn {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .modal-header h3 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.25rem;
+            color: var(--text-primary);
+        }
+
+        .close-modal {
+            color: var(--text-secondary);
+            font-size: 1.5rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+
+        .close-modal:hover {
+            color: var(--text-primary);
+        }
+
+        /* Pulse Ring for collection status */
+        .status-syncing {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .sync-spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-top-color: var(--accent-primary);
+            border-radius: 50%;
+            animation: spin 1s infinite linear;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Header -->
+        <header>
+            <div class="header-title">
+                <h1>Pipeline Run Monitor</h1>
+                <p>Telemetry metadata log ingestion & status hub</p>
+            </div>
+            <div class="header-actions">
+                <div id="sync-status" class="status-syncing" style="display: none;">
+                    <div class="sync-spinner"></div>
+                    <span>Syncing Databricks...</span>
+                </div>
+                <button id="collect-btn" class="btn" onclick="triggerCollection()">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                    Sync Metadata
+                </button>
+            </div>
+        </header>
+
+        <!-- KPI Grid -->
+        <div class="kpi-grid">
+            <div class="card kpi-card">
+                <div class="kpi-title">Total Runs</div>
+                <div id="kpi-total-runs" class="kpi-value">--</div>
+                <div class="kpi-sub">
+                    <span id="kpi-running-badge" class="badge badge-running" style="display:none; padding: 0.1rem 0.4rem; font-size: 0.65rem;">-- Active</span>
+                    <span id="kpi-runs-subtext">Aggregated job metrics</span>
+                </div>
+            </div>
+            <div class="card kpi-card" style="--accent-gradient: linear-gradient(135deg, #ef4444 0%, #f97316 100%);">
+                <div class="kpi-title">Failure Rate</div>
+                <div id="kpi-failure-rate" class="kpi-value">--</div>
+                <div class="kpi-sub">
+                    <span id="kpi-failed-count" style="color: var(--color-failed); font-weight: 600;">--</span> failed runs total
+                </div>
+            </div>
+            <div class="card kpi-card" style="--accent-gradient: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%);">
+                <div class="kpi-title">Avg Duration</div>
+                <div id="kpi-avg-duration" class="kpi-value">--</div>
+                <div class="kpi-sub">seconds per run</div>
+            </div>
+            <div class="card kpi-card" style="--accent-gradient: linear-gradient(135deg, #10b981 0%, #3b82f6 100%);">
+                <div class="kpi-title">Data Volumetrics</div>
+                <div id="kpi-volume" class="kpi-value">--</div>
+                <div class="kpi-sub">rows processed (read/write)</div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="dashboard-content">
+            <!-- Left Side: Table of runs -->
+            <div class="card" style="display: flex; flex-direction: column; overflow: hidden;">
+                <div class="section-header">
+                    <h2>Live Ingested Run Log</h2>
+                    <div class="filters">
+                        <button class="filter-btn active" onclick="setFilter('all')">All</button>
+                        <button class="filter-btn" onclick="setFilter('SUCCESS')">Success</button>
+                        <button class="filter-btn" onclick="setFilter('FAILED')">Failed</button>
+                        <button class="filter-btn" onclick="setFilter('RUNNING')">Active</button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table id="runs-table">
+                        <thead>
+                            <tr>
+                                <th>Job Name</th>
+                                <th>Run ID</th>
+                                <th>Status</th>
+                                <th>Start Time (UTC)</th>
+                                <th>Duration</th>
+                                <th>Rows Read</th>
+                                <th>Rows Written</th>
+                                <th>Info</th>
+                            </tr>
+                        </thead>
+                        <tbody id="runs-table-body">
+                            <tr>
+                                <td colspan="8" style="text-align: center; color: var(--text-secondary); padding: 3rem;">
+                                    Loading run logs...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Right Side: Chart of execution durations -->
+            <div class="card chart-card">
+                <div class="section-header">
+                    <h2>Processing Duration (Last 20 Runs)</h2>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="durationChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Error Modal -->
+    <div id="errorModal" class="modal" onclick="closeModal(event)">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3 id="modal-title">Job Error Details</h3>
+                <span class="close-modal" onclick="hideModal()">&times;</span>
+            </div>
+            <div id="modal-body">
+                <!-- Injected Error Content -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentStatusFilter = 'all';
+        let durationChart = null;
+
+        // Auto reload dashboard metrics every 5 seconds
+        setInterval(fetchData, 5000);
+        window.addEventListener('load', () => {
+            fetchData();
+        });
+
+        async function fetchData() {
+            try {
+                // Fetch KPIs
+                const kpiRes = await fetch('/api/kpis');
+                if (kpiRes.ok) {
+                    const kpis = await kpiRes.json();
+                    updateKPIs(kpis);
+                }
+
+                // Fetch run list
+                let url = '/api/runs?limit=50';
+                if (currentStatusFilter !== 'all') {
+                    url += `&status=${currentStatusFilter}`;
+                }
+                const runsRes = await fetch(url);
+                if (runsRes.ok) {
+                    const runs = await runsRes.json();
+                    updateTable(runs);
+                }
+
+                // Fetch duration history for chart (always want success/failed history to show durations)
+                const historyRes = await fetch('/api/duration-history?limit=20');
+                if (historyRes.ok) {
+                    const history = await historyRes.json();
+                    updateChart(history);
+                }
+            } catch (err) {
+                console.error("Error updating dashboard data:", err);
+            }
+        }
+
+        function updateKPIs(kpis) {
+            document.getElementById('kpi-total-runs').textContent = kpis.total_runs;
+            document.getElementById('kpi-failure-rate').textContent = kpis.failure_rate + '%';
+            document.getElementById('kpi-failed-count').textContent = kpis.failed_runs;
+            
+            // Average duration
+            document.getElementById('kpi-avg-duration').textContent = kpis.avg_duration + 's';
+            
+            // Volume representation
+            const totalRows = kpis.total_rows_read + kpis.total_rows_written;
+            document.getElementById('kpi-volume').textContent = formatVolume(totalRows);
+
+            // Active running jobs badge
+            const runningBadge = document.getElementById('kpi-running-badge');
+            if (kpis.running_runs > 0) {
+                runningBadge.textContent = `${kpis.running_runs} Active`;
+                runningBadge.style.display = 'inline-flex';
+            } else {
+                runningBadge.style.display = 'none';
+            }
+        }
+
+        function formatVolume(num) {
+            if (num >= 1.0e9) return (num / 1.0e9).toFixed(1) + 'B';
+            if (num >= 1.0e6) return (num / 1.0e6).toFixed(1) + 'M';
+            if (num >= 1.0e3) return (num / 1.0e3).toFixed(1) + 'K';
+            return num.toString();
+        }
+
+        function updateTable(runs) {
+            const tbody = document.getElementById('runs-table-body');
+            if (runs.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-secondary); padding: 3rem;">No pipeline runs found.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = runs.map(run => {
+                const badgeClass = run.status === 'SUCCESS' ? 'badge-success' 
+                                 : run.status === 'FAILED' ? 'badge-failed' 
+                                 : 'badge-running';
+                
+                // Format datetime
+                const startTime = new Date(run.start_time);
+                const formatTime = startTime.toLocaleString();
+
+                const infoButton = run.status === 'FAILED' 
+                    ? `<span class="error-cell" onclick="showErrorModal('${run.job_name}', '${run.id}', \`${escapeJS(run.error_message || '')}\`)">View Error</span>`
+                    : `<span style="color: var(--text-muted);">--</span>`;
+
+                return `
+                    <tr>
+                        <td style="font-weight: 600; color: var(--text-primary);">${run.job_name}</td>
+                        <td style="font-family: monospace; font-size: 0.8rem; color: var(--text-secondary);">${run.id}</td>
+                        <td><span class="badge ${badgeClass}">${run.status}</span></td>
+                        <td style="color: var(--text-secondary); font-size: 0.85rem;">${formatTime}</td>
+                        <td style="font-weight: 500;">${run.duration.toFixed(1)}s</td>
+                        <td style="color: var(--text-secondary);">${run.rows_read.toLocaleString()}</td>
+                        <td style="color: var(--text-secondary);">${run.rows_written.toLocaleString()}</td>
+                        <td>${infoButton}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function escapeJS(str) {
+            return str
+                .replace(/\\/g, '\\\\')
+                .replace(/`/g, '\\`')
+                .replace(/\$/g, '\\$')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function updateChart(history) {
+            const ctx = document.getElementById('durationChart').getContext('2d');
+            
+            // Map labels and data points
+            const labels = history.map(h => {
+                const date = new Date(h.start_time);
+                return `${h.job_name} (${date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})})`;
+            });
+            const data = history.map(h => h.duration);
+            
+            // Set dynamic background colors based on run status
+            const backgroundColors = history.map(h => {
+                if (h.status === 'SUCCESS') return 'rgba(16, 185, 129, 0.4)';  // transparent green
+                if (h.status === 'FAILED') return 'rgba(239, 68, 68, 0.4)';    // transparent red
+                return 'rgba(14, 165, 233, 0.4)';                             // transparent blue
+            });
+
+            const borderColors = history.map(h => {
+                if (h.status === 'SUCCESS') return 'rgb(16, 185, 129)';
+                if (h.status === 'FAILED') return 'rgb(239, 68, 68)';
+                return 'rgb(14, 165, 233)';
+            });
+
+            if (durationChart) {
+                durationChart.data.labels = labels;
+                durationChart.data.datasets[0].data = data;
+                durationChart.data.datasets[0].backgroundColor = backgroundColors;
+                durationChart.data.datasets[0].borderColor = borderColors;
+                durationChart.update();
+            } else {
+                durationChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Duration (seconds)',
+                            data: data,
+                            backgroundColor: backgroundColors,
+                            borderColor: borderColors,
+                            borderWidth: 1.5,
+                            borderRadius: 4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: false
+                            },
+                            tooltip: {
+                                backgroundColor: 'rgba(19, 27, 46, 0.95)',
+                                titleFont: { family: 'Inter', weight: 'bold' },
+                                bodyFont: { family: 'Inter' },
+                                borderColor: 'rgba(255, 255, 255, 0.08)',
+                                borderWidth: 1
+                            }
+                        },
+                        scales: {
+                            y: {
+                                grid: {
+                                    color: 'rgba(255, 255, 255, 0.05)'
+                                },
+                                ticks: {
+                                    color: '#94a3b8',
+                                    font: { family: 'Inter' }
+                                },
+                                title: {
+                                    display: true,
+                                    text: 'Duration (s)',
+                                    color: '#64748b'
+                                }
+                            },
+                            x: {
+                                grid: {
+                                    display: false
+                                },
+                                ticks: {
+                                    display: false // hide X labels because they can be long
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        function setFilter(status) {
+            currentStatusFilter = status;
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            fetchData();
+        }
+
+        async function triggerCollection() {
+            const btn = document.getElementById('collect-btn');
+            const syncStatus = document.getElementById('sync-status');
+            btn.disabled = true;
+            syncStatus.style.display = 'inline-flex';
+
+            try {
+                const res = await fetch('/api/collect', { method: 'POST' });
+                if (res.ok) {
+                    const result = await res.json();
+                    console.log("Collection complete:", result);
+                    fetchData();
+                } else {
+                    alert("Collection failed. Make sure your Databricks environment credentials are set.");
+                }
+            } catch (err) {
+                console.error("Error triggering collection:", err);
+                alert("Error triggering collection.");
+            } finally {
+                btn.disabled = false;
+                syncStatus.style.display = 'none';
+            }
+        }
+
+        function showErrorModal(jobName, runId, errorMsg) {
+            const modal = document.getElementById('errorModal');
+            const body = document.getElementById('modal-body');
+            
+            body.innerHTML = `
+                <div style="margin-bottom: 1rem;">
+                    <span style="color: var(--text-secondary); font-size: 0.85rem;">Job Name:</span>
+                    <strong style="color: var(--text-primary); font-size: 1rem;">${jobName}</strong>
+                </div>
+                <div style="margin-bottom: 1.5rem;">
+                    <span style="color: var(--text-secondary); font-size: 0.85rem;">Run ID:</span>
+                    <code style="font-family: monospace; color: var(--color-running); background: rgba(14, 165, 233, 0.05); padding: 0.2rem 0.4rem; border-radius: 4px; font-size: 0.8rem;">${runId}</code>
+                </div>
+                <div style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 0.5rem;">Stacktrace/Error Message:</div>
+                <pre class="error-log">${errorMsg}</pre>
+            `;
+            
+            modal.style.display = 'flex';
+        }
+
+        function hideModal() {
+            document.getElementById('errorModal').style.display = 'none';
+        }
+
+        function closeModal(event) {
+            if (event.target.id === 'errorModal') {
+                hideModal();
+            }
+        }
+    </script>
+</body>
+</html>
