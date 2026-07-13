@@ -149,6 +149,7 @@ app = FastAPI(
 
 # Web endpoints
 @app.get("/", response_class=HTMLResponse)
+@app.get("/dashboard", response_class=HTMLResponse)
 async def get_dashboard():
     template_path = os.path.join(os.path.dirname(__file__), "templates", "index.html")
     if not os.path.exists(template_path):
@@ -176,7 +177,6 @@ async def get_runs(limit: int = 50, status: Optional[str] = None, job_id: Option
     except Exception as e:
         logger.error(f"Error fetching runs: {e}")
         raise HTTPException(status_code=500, detail="Database fetch failed")
-
 
 @app.get("/api/duration-history")
 async def get_durations(limit: int = 20):

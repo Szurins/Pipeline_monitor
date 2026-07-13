@@ -1,30 +1,41 @@
-import { useState, useEffect, useRef } from 'react'
-import Chart from 'chart.js/auto'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom'
+import Navbar from './components/Navbar'
+import LandingPage from './components/LandingPage'
+import Dashboard from './components/Dashboard'
+import JobDetailModal from './components/JobDetailModal'
+import KpiBreakdownModal from './components/KpiBreakdownModal'
 import './App.css'
 
-function App() {
-  const [view, setView] = useState('landing') // 'landing' or 'dashboard'
+function AppContent() {
+  const navigate = useNavigate()
+  const location = useLocation()
+  
+  // Route-based view derivation
+  const view = location.pathname === '/dashboard' ? 'dashboard' : 'landing'
   
   // Dashboard Telemetry States
   const [kpis, setKpis] = useState(null)
   const [succeededRuns, setSucceededRuns] = useState([])
   const [failedRuns, setFailedRuns] = useState([])
   const [anomalies, setAnomalies] = useState([])
-  
-  // Drill-down History States
-  const [selectedJobId, setSelectedJobId] = useState(null)
-  const [selectedJobName, setSelectedJobName] = useState(null)
-  const [selectedJobSource, setSelectedJobSource] = useState(null)
-  const [jobRuns, setJobRuns] = useState([])
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
-  const [selectedRun, setSelectedRun] = useState(null)
-  const canvasRef = useRef(null)
-  const chartInstanceRef = useRef(null)
-  const inlineCanvasRef = useRef(null)
-  const inlineChartInstanceRef = useRef(null)
 
-  // Modal State
-  const [isChartModalOpen, setIsChartModalOpen] = useState(false)
+  // Modal Telemetry States
+  const [activeJob, setActiveJob] = useState(null)
+  const [syncCount, setSyncCount] = useState(0)
+
+  // Search & Sorting States
+  const [succeededSearch, setSucceededSearch] = useState('')
+  const [failedSearch, setFailedSearch] = useState('')
+  const [succeededSort, setSucceededSort] = useState({ column: null, direction: null })
+  const [failedSort, setFailedSort] = useState({ column: null, direction: null })
+
+  // Lazy-loading limits
+  const [succeededLimit, setSucceededLimit] = useState(15)
+  const [failedLimit, setFailedLimit] = useState(15)
+
+  // KPI Breakdown Modal state
+  const [isKpiModalOpen, setIsKpiModalOpen] = useState(false)
 
   // Sync state
   const [isSyncing, setIsSyncing] = useState(false)
@@ -82,7 +93,7 @@ function App() {
   }, [view])
 
   // Fetch telemetry from local FastAPI server
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = useCallback(async (succLimit, failLimit) => {
     try {
       const kpisRes = await fetch('/api/kpis')
       if (kpisRes.ok) {
@@ -90,13 +101,13 @@ function App() {
         setKpis(kpisData)
       }
 
-      const succRes = await fetch('/api/runs?status=SUCCESS&limit=15')
+      const succRes = await fetch(`/api/runs?status=SUCCESS&limit=${succLimit}`)
       if (succRes.ok) {
         const succData = await succRes.json()
         setSucceededRuns(succData)
       }
 
-      const failRes = await fetch('/api/runs?status=FAILED&limit=15')
+      const failRes = await fetch(`/api/runs?status=FAILED&limit=${failLimit}`)
       if (failRes.ok) {
         const failData = await failRes.json()
         setFailedRuns(failData)
@@ -110,817 +121,231 @@ function App() {
     } catch (err) {
       console.error('Error fetching dashboard telemetry:', err)
     }
-  }
+  }, [])
 
-  // Poll dashboard data every 5 seconds when dashboard view is active
+  // Automatic background sync and polling loop (runs every 30 seconds)
   useEffect(() => {
-    if (view === 'dashboard') {
-      fetchDashboardData()
-      const interval = setInterval(fetchDashboardData, 5000)
-      return () => clearInterval(interval)
-    }
-  }, [view])
+    if (view !== 'dashboard') return
 
-  // Fetch specific job run history
-  const fetchJobHistory = async (jobId, jobName, jobSource) => {
-    setIsLoadingHistory(true)
-    setSelectedJobId(jobId)
-    setSelectedJobName(jobName)
-    setSelectedJobSource(jobSource)
-    try {
-      const res = await fetch(`/api/runs?job_id=${jobId}&limit=20`)
-      if (res.ok) {
-        const data = await res.json()
-        setJobRuns(data)
-      }
-    } catch (err) {
-      console.error('Error fetching job history:', err)
-    } finally {
-      setIsLoadingHistory(false)
-    }
-  }
+    // Immediately fetch initial dashboard data
+    fetchDashboardData(succeededLimit, failedLimit)
 
-  // Handle click on specific job (instant modal feedback)
-  const handleJobClick = (jobId, jobName, jobSource) => {
-    setIsChartModalOpen(true)
-    setSelectedRun(null)
-    fetchJobHistory(jobId, jobName, jobSource)
-  }
-
-  // Sync Databricks API
-  const handleSync = async () => {
-    setIsSyncing(true)
-    try {
-      const res = await fetch('/api/collect', { method: 'POST' })
-      if (res.ok) {
-        await fetchDashboardData()
-        if (selectedJobId) {
-          fetchJobHistory(selectedJobId, selectedJobName, selectedJobSource)
+    // Trigger POST /api/collect sync followed by refresh
+    const performBackgroundSync = async () => {
+      setIsSyncing(true)
+      try {
+        const res = await fetch('/api/collect', { method: 'POST' })
+        if (res.ok) {
+          await fetchDashboardData(succeededLimit, failedLimit)
+          setSyncCount(prev => prev + 1)
         }
+      } catch (err) {
+        console.error('Error in automatic background sync:', err)
+      } finally {
+        setIsSyncing(false)
       }
-    } catch (err) {
-      console.error('Error syncing metadata:', err)
-    } finally {
-      setIsSyncing(false)
-    }
-  }
-
-  const formatVolume = (num) => {
-    if (!num) return '0'
-    if (num >= 1.0e9) return (num / 1.0e9).toFixed(1) + 'B'
-    if (num >= 1.0e6) return (num / 1.0e6).toFixed(1) + 'M'
-    if (num >= 1.0e3) return (num / 1.0e3).toFixed(1) + 'K'
-    return num.toString()
-  }
-
-  const formatDate = (isoString) => {
-    const date = new Date(isoString)
-    return date.toLocaleString()
-  }
-
-  // Helper to format short Run ID
-  const getShortRunId = (runId) => {
-    if (!runId) return ''
-    if (runId.length <= 15) return runId
-    return runId.substring(0, 12) + '...'
-  }
-
-  // Initialize Chart.js graph inside useEffect to prevent canvas leak & layout thrashing
-  useEffect(() => {
-    if (!isChartModalOpen || !canvasRef.current || jobRuns.length === 0) {
-      return
     }
 
-    if (chartInstanceRef.current) {
-      chartInstanceRef.current.destroy()
-    }
+    // Run first background sync after 2 seconds to load freshest results quickly, then every 30 seconds
+    const initialSyncTimeout = setTimeout(performBackgroundSync, 2000)
+    const interval = setInterval(performBackgroundSync, 30000)
 
-    const ctx = canvasRef.current.getContext('2d')
-    const chronRuns = [...jobRuns].reverse()
-    const labels = chronRuns.map((_, i) => `Run ${chronRuns.length - i}`)
-    const data = chronRuns.map(r => r.duration)
-    
-    const gradient = ctx.createLinearGradient(0, 0, 0, 200)
-    gradient.addColorStop(0, 'rgba(14, 165, 233, 0.45)')
-    gradient.addColorStop(1, 'rgba(14, 165, 233, 0.00)')
-
-    const pointColors = chronRuns.map(r => r.status === 'SUCCESS' ? '#10b981' : '#ef4444')
-
-    chartInstanceRef.current = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: labels,
-        datasets: [{
-          label: 'Duration (s)',
-          data: data,
-          borderColor: '#0ea5e9',
-          borderWidth: 2.5,
-          backgroundColor: gradient,
-          fill: true,
-          tension: 0.25,
-          pointBackgroundColor: pointColors,
-          pointBorderColor: '#0a0e1a',
-          pointBorderWidth: 1.5,
-          pointRadius: 5,
-          pointHoverRadius: 7.5,
-          pointHoverBackgroundColor: pointColors,
-          pointHoverBorderColor: '#ffffff',
-          pointHoverBorderWidth: 2,
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        onClick: (event, activeElements) => {
-          if (activeElements && activeElements.length > 0) {
-            const index = activeElements[0].index
-            const run = chronRuns[index]
-            setSelectedRun(run)
-          }
-        },
-        plugins: {
-          legend: {
-            display: false
-          },
-          tooltip: {
-            backgroundColor: 'rgba(10, 14, 26, 0.95)',
-            titleColor: '#ffffff',
-            bodyColor: '#94a3b8',
-            borderColor: 'rgba(255, 255, 255, 0.08)',
-            borderWidth: 1,
-            padding: 10,
-            cornerRadius: 8,
-            displayColors: false,
-            callbacks: {
-              title: (context) => {
-                const index = context[0].dataIndex
-                const run = chronRuns[index]
-                return `Run ID: ${run.id.substring(0, 12)}...`
-              },
-              label: (context) => {
-                const index = context.dataIndex
-                const run = chronRuns[index]
-                const dateStr = new Date(run.start_time).toLocaleString()
-                return [
-                  `Status: ${run.status}`,
-                  `Duration: ${run.duration.toFixed(2)}s`,
-                  `Volume: ${(run.rows_read + run.rows_written).toLocaleString()} rows`,
-                  `Start Time: ${dateStr}`
-                ]
-              }
-            }
-          }
-        },
-        scales: {
-          x: {
-            grid: {
-              color: 'rgba(255, 255, 255, 0.05)',
-            },
-            ticks: {
-              color: '#64748b',
-              font: {
-                family: 'Inter',
-                size: 9
-              }
-            }
-          },
-          y: {
-            grid: {
-              color: 'rgba(255, 255, 255, 0.05)',
-            },
-            ticks: {
-              color: '#64748b',
-              font: {
-                family: 'Inter',
-                size: 9
-              },
-              callback: (value) => `${value}s`
-            }
-          }
-        }
-      }
-    })
+    // Also set up a lightweight database poll every 5 seconds to keep UI responsive
+    const dbPollInterval = setInterval(() => {
+      fetchDashboardData(succeededLimit, failedLimit)
+    }, 5000)
 
     return () => {
-      if (chartInstanceRef.current) {
-        chartInstanceRef.current.destroy()
-        chartInstanceRef.current = null
+      clearTimeout(initialSyncTimeout)
+      clearInterval(interval)
+      clearInterval(dbPollInterval)
+    }
+  }, [view, succeededLimit, failedLimit, fetchDashboardData])
+
+  // Handle click on specific job (instant modal feedback with specific clicked run id)
+  const handleJobClick = useCallback((jobId, jobName, jobSource, targetRunId) => {
+    setActiveJob({ id: jobId, name: jobName, source: jobSource, targetRunId: targetRunId })
+  }, [])
+
+  // Callbacks for closing sub-panels
+  const handleCloseModal = useCallback(() => {
+    setActiveJob(null)
+  }, [])
+
+  // Scroll handler for lazy loading
+  const handleScroll = useCallback((e, tableType) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.target
+    if (scrollHeight - scrollTop - clientHeight < 30) {
+      if (tableType === 'succeeded') {
+        setSucceededLimit(prev => prev + 15)
+      } else {
+        setFailedLimit(prev => prev + 15)
       }
     }
-  }, [jobRuns, isChartModalOpen])
+  }, [])
 
-  // Render Canvas element for Chart.js
-  const renderLineChart = () => {
-    if (jobRuns.length === 0) {
-      return <div className="no-data">No history recorded for this job.</div>
+  // Sorting Handler
+  const handleSort = useCallback((tableType, columnName) => {
+    const isSucceeded = tableType === 'succeeded'
+    const currentSort = isSucceeded ? succeededSort : failedSort
+    const setSort = isSucceeded ? setSucceededSort : setFailedSort
+
+    if (currentSort.column === columnName) {
+      if (currentSort.direction === 'asc') {
+        setSort({ column: columnName, direction: 'desc' })
+      } else if (currentSort.direction === 'desc') {
+        setSort({ column: null, direction: null })
+      }
+    } else {
+      setSort({ column: columnName, direction: 'asc' })
     }
-    return (
-      <div className="chart-canvas-container" style={{ position: 'relative', height: '360px', width: '100%', marginBottom: '1rem' }}>
-        <canvas ref={canvasRef}></canvas>
-      </div>
-    )
-  }
+  }, [succeededSort, failedSort])
 
-  // Initialize inline Chart.js graph inside useEffect
-  useEffect(() => {
-    if (!selectedJobId || !inlineCanvasRef.current || jobRuns.length === 0) {
-      return
+  // Memoized Sort & Filter calculations for execution feeds
+  const filteredSucceeded = useMemo(() => {
+    let result = [...succeededRuns]
+    if (succeededSearch.trim() !== '') {
+      const q = succeededSearch.toLowerCase()
+      result = result.filter(r => r.job_name.toLowerCase().includes(q) || r.id.toLowerCase().includes(q))
     }
-
-    if (inlineChartInstanceRef.current) {
-      inlineChartInstanceRef.current.destroy()
-    }
-
-    const ctx = inlineCanvasRef.current.getContext('2d')
-    const chronRuns = [...jobRuns].reverse()
-    const labels = chronRuns.map((_, i) => `Run ${chronRuns.length - i}`)
-    const data = chronRuns.map(r => r.duration)
-    
-    const gradient = ctx.createLinearGradient(0, 0, 0, 200)
-    gradient.addColorStop(0, 'rgba(14, 165, 233, 0.45)')
-    gradient.addColorStop(1, 'rgba(14, 165, 233, 0.00)')
-
-    const pointColors = chronRuns.map(r => r.status === 'SUCCESS' ? '#10b981' : '#ef4444')
-
-    inlineChartInstanceRef.current = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: labels,
-        datasets: [{
-          label: 'Duration (s)',
-          data: data,
-          borderColor: '#0ea5e9',
-          borderWidth: 2.5,
-          backgroundColor: gradient,
-          fill: true,
-          tension: 0.25,
-          pointBackgroundColor: pointColors,
-          pointBorderColor: '#0a0e1a',
-          pointBorderWidth: 1.5,
-          pointRadius: 5,
-          pointHoverRadius: 7.5,
-          pointHoverBackgroundColor: pointColors,
-          pointHoverBorderColor: '#ffffff',
-          pointHoverBorderWidth: 2,
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        onClick: (event, activeElements) => {
-          if (activeElements && activeElements.length > 0) {
-            const index = activeElements[0].index
-            const run = chronRuns[index]
-            setSelectedRun(run)
-            setIsChartModalOpen(true)
-          }
-        },
-        plugins: {
-          legend: {
-            display: false
-          },
-          tooltip: {
-            backgroundColor: 'rgba(10, 14, 26, 0.95)',
-            titleColor: '#ffffff',
-            bodyColor: '#94a3b8',
-            borderColor: 'rgba(255, 255, 255, 0.08)',
-            borderWidth: 1,
-            padding: 10,
-            cornerRadius: 8,
-            displayColors: false,
-            callbacks: {
-              title: (context) => {
-                const index = context[0].dataIndex
-                const run = chronRuns[index]
-                return `Run ID: ${run.id.substring(0, 12)}...`
-              },
-              label: (context) => {
-                const index = context.dataIndex
-                const run = chronRuns[index]
-                const dateStr = new Date(run.start_time).toLocaleString()
-                return [
-                  `Status: ${run.status}`,
-                  `Duration: ${run.duration.toFixed(2)}s`,
-                  `Volume: ${(run.rows_read + run.rows_written).toLocaleString()} rows`,
-                  `Start Time: ${dateStr}`
-                ]
-              }
-            }
-          }
-        },
-        scales: {
-          x: {
-            grid: {
-              color: 'rgba(255, 255, 255, 0.05)',
-            },
-            ticks: {
-              color: '#64748b',
-              font: {
-                family: 'Inter',
-                size: 9
-              }
-            }
-          },
-          y: {
-            grid: {
-              color: 'rgba(255, 255, 255, 0.05)',
-            },
-            ticks: {
-              color: '#64748b',
-              font: {
-                family: 'Inter',
-                size: 9
-              },
-              callback: (value) => `${value}s`
-            }
-          }
+    if (succeededSort.column) {
+      const { column, direction } = succeededSort
+      result.sort((a, b) => {
+        let valA, valB
+        if (column === 'volume') {
+          valA = (a.rows_read || 0) + (a.rows_written || 0)
+          valB = (b.rows_read || 0) + (b.rows_written || 0)
+        } else {
+          valA = a[column]
+          valB = b[column]
         }
-      }
-    })
 
-    return () => {
-      if (inlineChartInstanceRef.current) {
-        inlineChartInstanceRef.current.destroy()
-        inlineChartInstanceRef.current = null
-      }
-    }
-  }, [jobRuns, selectedJobId])
+        if (valA === undefined || valA === null) return 1
+        if (valB === undefined || valB === null) return -1
 
-  // Render inline Canvas element for Chart.js
-  const renderInlineLineChart = () => {
-    if (jobRuns.length === 0) {
-      return <div className="no-data">No history recorded for this job.</div>
+        if (typeof valA === 'string') {
+          return direction === 'asc' 
+            ? valA.localeCompare(valB) 
+            : valB.localeCompare(valA)
+        } else {
+          return direction === 'asc' 
+            ? valA - valB 
+            : valB - valA
+        }
+      })
     }
+    return result
+  }, [succeededRuns, succeededSearch, succeededSort])
+
+  const filteredFailed = useMemo(() => {
+    let result = [...failedRuns]
+    if (failedSearch.trim() !== '') {
+      const q = failedSearch.toLowerCase()
+      result = result.filter(r => r.job_name.toLowerCase().includes(q) || r.id.toLowerCase().includes(q) || (r.error_message || '').toLowerCase().includes(q))
+    }
+    if (failedSort.column) {
+      const { column, direction } = failedSort
+      result.sort((a, b) => {
+        let valA = a[column]
+        let valB = b[column]
+
+        if (valA === undefined || valA === null) return 1
+        if (valB === undefined || valB === null) return -1
+
+        if (typeof valA === 'string') {
+          return direction === 'asc' 
+            ? valA.localeCompare(valB) 
+            : valB.localeCompare(valA)
+        } else {
+          return direction === 'asc' 
+            ? valA - valB 
+            : valB - valA
+        }
+      })
+    }
+    return result
+  }, [failedRuns, failedSearch, failedSort])
+
+  // Helper to render sortable column headers for raw execution feed
+  const renderHeader = (tableType, columnName, label) => {
+    const sort = tableType === 'succeeded' ? succeededSort : failedSort
+    const isActive = sort.column === columnName
     return (
-      <div className="chart-canvas-container" style={{ position: 'relative', height: '240px', width: '100%' }}>
-        <canvas ref={inlineCanvasRef}></canvas>
-      </div>
+      <th 
+        onClick={() => handleSort(tableType, columnName)}
+        style={{ cursor: 'pointer', userSelect: 'none', color: isActive ? 'var(--c-running)' : 'inherit' }}
+        title={`Sort by ${label} (Ascending -> Descending -> Reset)`}
+      >
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          {label}
+          <span style={{ fontSize: '0.65rem', opacity: isActive ? 1 : 0.35, display: 'inline-block', minWidth: '10px' }}>
+            {isActive ? (sort.direction === 'asc' ? '▲' : '▼') : '↕'}
+          </span>
+        </div>
+      </th>
     )
   }
 
   return (
     <div className="landing-layout">
       {/* Navbar */}
-      <nav className="navbar">
-        <div className="logo-area" onClick={() => setView('landing')} style={{ cursor: 'pointer' }}>
-          <div className="logo-glow"></div>
-          <svg className="logo-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-          </svg>
-          <span className="logo-text">Pipewatch</span>
-        </div>
-        <div className="nav-links">
-          {view === 'landing' ? (
-            <>
-              <a href="#demo" className="nav-link">Live Telemetry</a>
-              <button className="btn btn-primary" onClick={() => setView('dashboard')}>Launch Dashboard</button>
-            </>
-          ) : (
-            <>
-              <button className="btn btn-secondary" onClick={() => setView('landing')}>Home</button>
-              <button className="btn btn-primary" onClick={handleSync} disabled={isSyncing}>
-                {isSyncing ? (
-                  <>
-                    <span className="inline-spinner"></span>
-                    Syncing...
-                  </>
-                ) : (
-                  <>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px' }}><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-                    Sync Telemetry
-                  </>
-                )}
-              </button>
-            </>
-          )}
-        </div>
-      </nav>
+      <Navbar 
+        view={view} 
+        isSyncing={isSyncing} 
+        onNavigate={navigate} 
+      />
 
       {/* VIEW 1: LANDING PAGE */}
       {view === 'landing' && (
-        <>
-          {/* Hero Section */}
-          <header className="hero-section">
-            <div className="hero-content">
-              <div className="badge-wrapper">
-                <span className="badge-new">v1.0.0</span>
-                <span className="badge-desc">Cross-Platform Pipeline Monitoring</span>
-              </div>
-              <h1 className="hero-title">
-                Observe Your Pipelines with <span className="gradient-text">Pipewatch</span>
-              </h1>
-              <p className="hero-subtitle">
-                A lightweight, extensible metadata collection engine and dashboard for modern data environments. Monitor Databricks, Snowflake, and BigQuery execution logs in a single unified command center.
-              </p>
-              <div className="cta-group">
-                <button className="btn btn-primary" onClick={() => setView('dashboard')}>Open Dashboard</button>
-                <a href="#demo" className="btn btn-secondary">Interactive Demo</a>
-              </div>
-            </div>
-          </header>
-
-          {/* Interactive Telemetry Section */}
-          <section id="demo" className="telemetry-section">
-            <div className="section-header">
-              <h2 className="section-title">Active Ingestion Pipeline Status</h2>
-              <p className="section-desc">Simulated real-time status transitions. React updates state dynamically to reflect pipeline telemetry logs.</p>
-            </div>
-
-            <div className="telemetry-grid">
-              {pipelineSteps.map((step, index) => {
-                const statusClass = step.status.toLowerCase()
-                return (
-                  <div key={index} className={`telemetry-card ${statusClass}`}>
-                    <div className="card-top">
-                      <span className="step-type">{step.type}</span>
-                      <span className={`status-dot-badge ${statusClass}`}>
-                        <span className="dot"></span>
-                        {step.status}
-                      </span>
-                    </div>
-                    <h3 className="step-name">
-                      {step.name}
-                      <span className="inline-source-badge databricks">databricks</span>
-                    </h3>
-                    
-                    <div className="card-metrics">
-                      <div className="metric-box">
-                        <span className="metric-label">Duration</span>
-                        <span className="metric-value">{step.duration}</span>
-                      </div>
-                      <div className="metric-box">
-                        <span className="metric-label">Rows</span>
-                        <span className="metric-value">{step.rows}</span>
-                      </div>
-                    </div>
-
-                    {step.error && (
-                      <div className="error-box">
-                        <span className="error-title">Stacktrace / Message</span>
-                        <p className="error-text">{step.error}</p>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </section>
-
-          <footer className="footer">
-            <p>&copy; {new Date().getFullYear()} Pipewatch. Built for scale.</p>
-          </footer>
-        </>
+        <LandingPage 
+          pipelineSteps={pipelineSteps} 
+          onNavigate={navigate} 
+        />
       )}
 
       {/* VIEW 2: REACT TELEMETRY DASHBOARD */}
       {view === 'dashboard' && (
-        <main className="dashboard-layout">
-          {/* Main Dashboard Layout Grid (12 Columns) */}
-          <div className="dashboard-layout-grid">
-            
-            {/* Section 1: KPI Grid (2x2 Square in Top Left Corner: column 1 to 5) */}
-            <div 
-              className="dashboard-sidebar-kpi"
-              style={{
-                gridColumn: '1 / 5'
-              }}
-            >
-              <div className="card kpi-card" style={{ height: '350px' }}>
-                <div className="kpi-grid">
-                  <div className="kpi-item border-right-divider border-bottom-divider">
-                    <div className="kpi-title">Total Runs</div>
-                    <div className="kpi-value">{kpis ? kpis.total_runs : '--'}</div>
-                    <div className="kpi-sub">
-                      {kpis && kpis.running_runs > 0 ? (
-                        <span className="badge-pulse-running">{kpis.running_runs} Active</span>
-                      ) : 'All runs captured'}
-                    </div>
-                  </div>
-                  <div className="kpi-item border-bottom-divider">
-                    <div className="kpi-title">Failure Rate</div>
-                    <div className="kpi-value" style={{ color: '#ef4444' }}>{kpis ? `${kpis.failure_rate}%` : '--'}</div>
-                    <div className="kpi-sub">
-                      <span style={{ color: '#ef4444', fontWeight: '600' }}>{kpis ? kpis.failed_runs : '--'}</span> failed executions
-                    </div>
-                  </div>
-                  <div className="kpi-item border-right-divider">
-                    <div className="kpi-title">Avg Duration</div>
-                    <div className="kpi-value">{kpis ? `${kpis.avg_duration}s` : '--'}</div>
-                    <div className="kpi-sub">completed average</div>
-                  </div>
-                  <div className="kpi-item">
-                    <div className="kpi-title">Data Volume</div>
-                    <div className="kpi-value">{kpis ? formatVolume(kpis.total_rows_read + kpis.total_rows_written) : '--'}</div>
-                    <div className="kpi-sub">rows processed</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Section 1.5: Anomaly Detector (Next to KPI on Row 1: columns 5 to 13) */}
-            <div 
-              className="dashboard-content-main"
-              style={{
-                gridColumn: '5 / 13'
-              }}
-            >
-              <div className="card table-card" style={{ height: '350px' }}>
-                <div className="table-card-header">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: 'middle' }}>
-                      <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
-                      <line x1="12" y1="9" x2="12" y2="13"/>
-                      <line x1="12" y1="17" x2="12.01" y2="17"/>
-                    </svg>
-                    <h3>Latency Anomaly Detector</h3>
-                  </div>
-                  <span className={`badge ${anomalies.length > 0 ? 'badge-failed' : 'badge-success'}`}>
-                    {anomalies.length > 0 ? `${anomalies.length} SLA Breaches` : 'All Normal'}
-                  </span>
-                </div>
-                <div className="table-responsive" style={{ flexGrow: 1, overflowY: 'auto' }}>
-                  {anomalies.length === 0 ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-gray)', padding: '1rem', textAlign: 'center' }}>
-                      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--c-success)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: '12px' }}>
-                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-                        <polyline points="22 4 12 14.01 9 11.01"/>
-                      </svg>
-                      <span style={{ fontSize: '0.85rem', fontWeight: '500' }}>All pipelines running within normal historical runtime averages.</span>
-                    </div>
-                  ) : (
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Pipeline</th>
-                          <th>Current Run</th>
-                          <th>Average Baseline</th>
-                          <th>Deviation</th>
-                          <th>Rows Processed</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {anomalies.map((anom) => (
-                          <tr key={anom.run_id} className="interactive-row">
-                            <td className="bold text-white">{anom.job_name}</td>
-                            <td className="bold" style={{ color: '#ef4444' }}>{anom.duration.toFixed(1)}s</td>
-                            <td className="muted-text">{anom.avg_duration}s</td>
-                            <td>
-                              <span style={{ color: '#ef4444', fontWeight: '700', fontSize: '0.8rem' }}>
-                                +{anom.deviation_percent}% SLA Breach
-                              </span>
-                            </td>
-                            <td>{anom.rows_processed ? anom.rows_processed.toLocaleString() : 0}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-              </div>
-            </div>
-
-
-
-            {/* Section 3: Succeeded Executions Table */}
-            <div className="dashboard-content-main" style={{ gridColumn: '1 / 7' }}>
-              <div className="card table-card">
-                <div className="table-card-header">
-                  <h3>Succeeded Executions</h3>
-                  <span className="badge badge-success">{succeededRuns.length} Latest</span>
-                </div>
-                <div className="table-responsive">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Pipeline</th>
-                        <th>Source</th>
-                        <th>Run ID</th>
-                        <th>Duration</th>
-                        <th>Volume</th>
-                        <th>Start Time</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {succeededRuns.length === 0 ? (
-                        <tr><td colSpan="6" className="empty-row">No succeeded runs found</td></tr>
-                      ) : (
-                        succeededRuns.map(run => (
-                          <tr 
-                            key={run.id} 
-                            className="clickable-row" 
-                            onClick={() => handleJobClick(run.job_id, run.job_name, run.source)}
-                            title="Click to view history and graph"
-                          >
-                            <td className="bold text-white">{run.job_name}</td>
-                            <td>
-                              <span className={`source-badge ${run.source}`}>{run.source}</span>
-                            </td>
-                            <td className="mono">{getShortRunId(run.id)}</td>
-                            <td className="bold">{run.duration.toFixed(1)}s</td>
-                            <td>{formatVolume(run.rows_read + run.rows_written)}</td>
-                            <td className="date-time">{run.start_time ? formatDate(run.start_time) : '--'}</td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-
-            {/* Section 4: Failed Executions Table */}
-            <div className="dashboard-content-main" style={{ gridColumn: '7 / 13' }}>
-              <div className="card table-card">
-                <div className="table-card-header">
-                  <h3>Failed Executions</h3>
-                  <span className="badge badge-failed">{failedRuns.length} Latest</span>
-                </div>
-                <div className="table-responsive">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Pipeline</th>
-                        <th>Source</th>
-                        <th>Run ID</th>
-                        <th>Duration</th>
-                        <th>Error Details</th>
-                        <th>Start Time</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {failedRuns.length === 0 ? (
-                        <tr><td colSpan="6" className="empty-row">No failed runs found</td></tr>
-                      ) : (
-                        failedRuns.map(run => (
-                          <tr 
-                            key={run.id} 
-                            className="clickable-row" 
-                            onClick={() => handleJobClick(run.job_id, run.job_name, run.source)}
-                            title="Click to view history and graph"
-                          >
-                            <td className="bold text-white">{run.job_name}</td>
-                            <td>
-                              <span className={`source-badge ${run.source}`}>{run.source}</span>
-                            </td>
-                            <td className="mono">{getShortRunId(run.id)}</td>
-                            <td className="bold">{run.duration.toFixed(1)}s</td>
-                            <td>
-                              <div className="truncate-error" title={run.error_message}>
-                                {run.error_message || 'Execution Failure'}
-                              </div>
-                            </td>
-                            <td className="date-time">{formatDate(run.start_time)}</td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-
-            {/* Section 5: Inline Debug Graph (Below Tables) */}
-            {selectedJobId && (
-              <div className="dashboard-content-main" style={{ gridColumn: '1 / 13', marginTop: '1.5rem' }}>
-                <div className="card table-card" style={{ padding: '1.5rem' }}>
-                  <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-                    <div>
-                      <span className="panel-subtitle">Inline Diagnostics Graph</span>
-                      <h2>
-                        {selectedJobName}
-                        <span className={`source-badge ${selectedJobSource}`}>{selectedJobSource}</span>
-                      </h2>
-                    </div>
-                    <button className="close-btn" style={{ background: 'none', border: 'none', color: 'var(--text-gray)', fontSize: '1.5rem', cursor: 'pointer' }} onClick={() => { setSelectedJobId(null); setSelectedRun(null); }}>&times;</button>
-                  </div>
-                  <div className="panel-body">
-                    {renderInlineLineChart()}
-                  </div>
-                </div>
-              </div>
-            )}
-
-          </div>
-        </main>
+        <Dashboard
+          kpis={kpis}
+          anomalies={anomalies}
+          succeededSearch={succeededSearch}
+          setSucceededSearch={setSucceededSearch}
+          failedSearch={failedSearch}
+          setFailedSearch={setFailedSearch}
+          filteredSucceeded={filteredSucceeded}
+          filteredFailed={filteredFailed}
+          renderHeader={renderHeader}
+          handleScroll={handleScroll}
+          handleJobClick={handleJobClick}
+          setIsKpiModalOpen={setIsKpiModalOpen}
+        />
       )}
 
       {/* Pop-Up Modal Window for the Chart Graph & Run Logs */}
-      <div 
-        className={`modal-backdrop ${isChartModalOpen ? 'active' : ''}`} 
-        onClick={() => { setIsChartModalOpen(false); }}
-      >
-        <div className="modal-container" onClick={(e) => e.stopPropagation()}>
-          <div className="modal-header">
-            <div>
-              <span className="modal-subtitle">Pipeline Drill-Down Logs & Telemetry</span>
-              <h3>
-                {selectedJobName || 'Loading Pipeline...'}
-                {selectedJobSource && (
-                  <span className={`source-badge ${selectedJobSource}`}>{selectedJobSource}</span>
-                )}
-              </h3>
-            </div>
-            <button className="modal-close-btn" onClick={() => { setIsChartModalOpen(false); }}>&times;</button>
-          </div>
-          <div className="modal-body font-adjusted" style={{ position: 'relative', flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
-            
-            {/* Loading Overlay */}
-            {isLoadingHistory && (
-              <div className="panel-loading-overlay" style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                background: 'rgba(10, 14, 26, 0.75)',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                zIndex: 10,
-                borderRadius: '12px',
-                backdropFilter: 'blur(4px)'
-              }}>
-                <div className="sync-spinner"></div>
-                <span style={{ marginTop: '10px', color: 'var(--text-white)', fontWeight: 500 }}>Fetching execution history...</span>
-              </div>
-            )}
+      <JobDetailModal
+        activeJob={activeJob}
+        onClose={handleCloseModal}
+        syncCount={syncCount}
+      />
 
-            <p className="modal-description" style={{ marginBottom: '0.5rem' }}>
-              Visualizing run durations (Y-axis) chronologically across executions (X-axis). Hover over dots to view exact timestamps.
-            </p>
-            <div className="line-chart-container">
-              {renderLineChart()}
-            </div>
-            
-            {selectedRun ? (
-              <div className="selected-run-detail-card animate-slide-down" style={{ marginTop: '1.5rem', padding: '1.25rem', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px' }}>
-                <h4 style={{ fontFamily: "'Outfit', sans-serif", fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-white)', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0ea5e9" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="10"></circle>
-                    <line x1="12" y1="16" x2="12" y2="12"></line>
-                    <line x1="12" y1="8" x2="12.01" y2="8"></line>
-                  </svg>
-                  Run Execution Details
-                </h4>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
-                  <div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: '2px' }}>Run ID</div>
-                    <div style={{ fontFamily: 'monospace', fontSize: '0.85rem', color: 'var(--text-white)' }} title={selectedRun.id}>{selectedRun.id}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: '2px' }}>Status</div>
-                    <div>
-                      <span className={`badge ${selectedRun.status === 'SUCCESS' ? 'badge-success' : 'badge-failed'}`} style={{ fontSize: '0.75rem', padding: '3px 8px' }}>
-                        {selectedRun.status}
-                      </span>
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: '2px' }}>Duration</div>
-                    <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-white)' }}>{selectedRun.duration.toFixed(2)}s</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: '2px' }}>Data Volume</div>
-                    <div style={{ fontSize: '0.9rem', color: 'var(--text-white)' }}>
-                      {Number(selectedRun.runs_read !== undefined ? selectedRun.runs_read : (selectedRun.rows_read !== undefined ? selectedRun.rows_read : 0)).toLocaleString()} rows read / {Number(selectedRun.runs_written !== undefined ? selectedRun.runs_written : (selectedRun.rows_written !== undefined ? selectedRun.rows_written : 0)).toLocaleString()} rows written
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: '2px' }}>Start Time</div>
-                    <div style={{ fontSize: '0.85rem', color: 'var(--text-white)' }}>{formatDate(selectedRun.start_time)}</div>
-                  </div>
-                  {selectedRun.end_time && (
-                    <div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600, marginBottom: '2px' }}>End Time</div>
-                      <div style={{ fontSize: '0.85rem', color: 'var(--text-white)' }}>{formatDate(selectedRun.end_time)}</div>
-                    </div>
-                  )}
-                </div>
-                {selectedRun.status === 'FAILED' && (
-                  <div style={{ marginTop: '1rem', padding: '0.75rem 1rem', background: 'rgba(239, 68, 68, 0.06)', border: '1px solid rgba(239, 68, 68, 0.15)', borderRadius: '8px' }}>
-                    <div style={{ fontSize: '0.75rem', color: '#f87171', textTransform: 'uppercase', fontWeight: 600, marginBottom: '4px' }}>Error Message</div>
-                    <div style={{ fontSize: '0.85rem', color: '#fca5a5', fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
-                      {selectedRun.error_message || 'Execution failed with an unclassified internal error.'}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div style={{ marginTop: '1.5rem', padding: '1.5rem', background: 'rgba(255,255,255,0.01)', border: '1px dashed rgba(255,255,255,0.05)', borderRadius: '12px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: '8px' }}>
-                  <circle cx="12" cy="12" r="10"></circle>
-                  <line x1="15" y1="9" x2="9" y2="15"></line>
-                  <line x1="9" y1="9" x2="15" y2="15"></line>
-                </svg>
-                Click on any run point (dot) in the graph above to view its detailed execution metrics and error logs.
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+      {/* KPI Breakdown Circle Graph Modal */}
+      <KpiBreakdownModal
+        isOpen={isKpiModalOpen}
+        onClose={() => setIsKpiModalOpen(false)}
+        kpis={kpis}
+      />
 
     </div>
+  )
+}
+
+function App() {
+  return (
+    <Router>
+      <Routes>
+        <Route path="*" element={<AppContent />} />
+      </Routes>
+    </Router>
   )
 }
 
