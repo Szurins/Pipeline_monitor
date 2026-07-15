@@ -28,8 +28,8 @@ def setup_test_db(monkeypatch):
 
 def test_database_initialization():
     # Verify jobs and runs lists are initially empty
-    assert len(get_all_jobs()) == 0
-    assert len(get_job_runs()) == 0
+    assert len(get_all_jobs("test_user")) == 0
+    assert len(get_job_runs(username="test_user")) == 0
 
 def test_upsert_job():
     job = JobSchema(
@@ -38,9 +38,9 @@ def test_upsert_job():
         source="databricks",
         created_at="2026-07-12T12:00:00Z"
     )
-    upsert_job(job)
+    upsert_job(job, "test_user")
     
-    jobs = get_all_jobs()
+    jobs = get_all_jobs("test_user")
     assert len(jobs) == 1
     assert jobs[0]["id"] == "test-job-1"
     assert jobs[0]["name"] == "Ingestion Job"
@@ -60,9 +60,9 @@ def test_upsert_job_run():
         rows_written=4950,
         error_message=None
     )
-    upsert_job_run(run)
+    upsert_job_run(run, "test_user")
     
-    runs = get_job_runs()
+    runs = get_job_runs(username="test_user")
     assert len(runs) == 1
     assert runs[0]["id"] == "test-run-1"
     assert runs[0]["status"] == "SUCCESS"
@@ -91,11 +91,11 @@ def test_kpi_computation():
         duration=0.0, rows_read=0, rows_written=0
     )
     
-    upsert_job_run(run1)
-    upsert_job_run(run2)
-    upsert_job_run(run3)
+    upsert_job_run(run1, "test_user")
+    upsert_job_run(run2, "test_user")
+    upsert_job_run(run3, "test_user")
     
-    kpis = get_kpis()
+    kpis = get_kpis("test_user")
     
     assert kpis.total_runs == 3
     assert kpis.success_runs == 1
@@ -113,9 +113,9 @@ def test_duration_history():
             status="SUCCESS", start_time=f"2026-07-12T12:0{i}:00Z",
             duration=10.0 * i, rows_read=100, rows_written=100
         )
-        upsert_job_run(run)
+        upsert_job_run(run, "test_user")
         
-    history = get_duration_history(limit=3)
+    history = get_duration_history(limit=3, username="test_user")
     assert len(history) == 3
     # Check that sorting is ascending by start_time (start_time ASC)
     assert history[0].run_id == "run-0"

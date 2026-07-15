@@ -30,14 +30,23 @@ def client():
     from src.app import app
     return TestClient(app)
 
+@pytest.fixture
+def auth_headers(client):
+    # Register
+    client.post("/api/auth/register", json={"username": "testuser", "password": "testpassword"})
+    # Login
+    response = client.post("/api/auth/login", json={"username": "testuser", "password": "testpassword"})
+    token = response.json()["token"]
+    return {"Authorization": f"Bearer {token}"}
+
 def test_get_dashboard_index(client):
     response = client.get("/")
     assert response.status_code == 200
     assert "Pipeline Run Monitor" in response.text
     assert "text/html" in response.headers["content-type"]
 
-def test_api_kpis(client):
-    response = client.get("/api/kpis")
+def test_api_kpis(client, auth_headers):
+    response = client.get("/api/kpis", headers=auth_headers)
     assert response.status_code == 200
     data = response.json()
     assert "total_runs" in data
@@ -45,30 +54,30 @@ def test_api_kpis(client):
     assert "avg_duration" in data
     assert "total_rows_read" in data
 
-def test_api_runs(client):
-    response = client.get("/api/runs")
+def test_api_runs(client, auth_headers):
+    response = client.get("/api/runs", headers=auth_headers)
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list)
 
-def test_api_duration_history(client):
-    response = client.get("/api/duration-history")
+def test_api_duration_history(client, auth_headers):
+    response = client.get("/api/duration-history", headers=auth_headers)
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list)
 
-def test_api_collect_simulated(client):
-    # Triggers an on-demand sync. Since we don't have databricks-sdk credentials configured in testing,
-    # it must fall back to simulated synchronization, inserting 1-3 new run logs.
-    response = client.post("/api/collect")
-    assert response.status_code == 200
+def test_api_collect_unconfigured(client, auth_headers):
+    # Triggers an on-demand sync. Since we don't have databricks credentials configured in testing,
+    # it must return a 400 Bad Request.
+    response = client.post("/api/collect", headers=auth_headers)
+    assert response.status_code == 400
     data = response.json()
-    assert data["status"] == "simulated"
-    assert "runs" in data
-    assert len(data["runs"]) >= 1
+    assert "detail" in data
+    assert "configured" in data["detail"]
 
-def test_api_test_connection(client):
-    response = client.get("/api/test-connection")
+def test_api_test_connection(client, auth_headers):
+    # POST endpoint verifying connection
+    response = client.post("/api/test-connection", json={"databricks_host": "https://adb-12345.azuredatabricks.net", "databricks_token": "dapi123"}, headers=auth_headers)
     assert response.status_code == 200
     data = response.json()
     assert "status" in data

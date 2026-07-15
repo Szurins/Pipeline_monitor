@@ -70,14 +70,14 @@ PIPELINES = [
     }
 ]
 
-def generate_mock_data(days: int = 7, clear_existing: bool = False):
+def generate_mock_data(days: int = 7, clear_existing: bool = False, username: str = ""):
     print(f"Initializing database at path...")
     init_db()
     
     now = datetime.utcnow()
     total_inserted = 0
 
-    print(f"Generating pipeline runs metadata for the last {days} days...")
+    print(f"Generating pipeline runs metadata for the last {days} days for user '{username}'...")
     
     # 1. Register all core pipelines as Jobs
     for pipe in PIPELINES:
@@ -87,7 +87,7 @@ def generate_mock_data(days: int = 7, clear_existing: bool = False):
             source="databricks",
             created_at=(now - timedelta(days=days + 1)).isoformat() + "Z"
         )
-        upsert_job(job)
+        upsert_job(job, username)
 
     # 2. Generate historical runs
     for pipe in PIPELINES:
@@ -146,7 +146,7 @@ def generate_mock_data(days: int = 7, clear_existing: bool = False):
                 collected_at=now.isoformat() + "Z"
             )
             
-            upsert_job_run(run)
+            upsert_job_run(run, username)
             total_inserted += 1
             
             current_time += interval

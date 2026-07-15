@@ -22,22 +22,21 @@ class DatabricksCollector(BaseCollector):
     Uses the official databricks-sdk to list jobs and run histories.
     """
     def __init__(self, host: Optional[str] = None, token: Optional[str] = None):
-        self.host = host or os.environ.get("DATABRICKS_HOST")
-        self.token = token or os.environ.get("DATABRICKS_TOKEN")
+        self.host = host
+        if self.host and not self.host.startswith("http://") and not self.host.startswith("https://"):
+            self.host = "https://" + self.host
+        self.token = token
         self.client = None
 
         if not HAS_DATABRICKS_SDK:
             logger.warning("databricks-sdk is not installed. DatabricksCollector will not function.")
             return
 
-        # WorkspaceClient can auto-authenticate from environment or config profiles
         try:
             if self.host and self.token:
                 self.client = WorkspaceClient(host=self.host, token=self.token)
             else:
-                # Fallback to default SDK auth (env vars, ~/.databrickscfg)
-                self.client = WorkspaceClient()
-                logger.info("Initialized Databricks WorkspaceClient using ambient authentication.")
+                logger.warning("DatabricksCollector initialized without host and/or token.")
         except Exception as e:
             logger.error(f"Failed to initialize Databricks WorkspaceClient: {e}")
 

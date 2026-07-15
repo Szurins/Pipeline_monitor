@@ -14,8 +14,103 @@ const Dashboard = memo(({
   renderHeader,
   handleScroll,
   handleJobClick,
-  setIsKpiModalOpen
+  setIsKpiModalOpen,
+  config,
+  onOpenConfig
 }) => {
+  const hasConfig = config && (config.databricks_host || config.databricks_token);
+
+  if (!hasConfig) {
+    return (
+      <main className="dashboard-layout" style={{ padding: '2rem', display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '80vh' }}>
+        <div className="card table-card animate-slide-down" style={{ maxWidth: '800px', width: '100%', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--c-running)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: '1rem', filter: 'drop-shadow(0 0 8px rgba(14, 165, 233, 0.4))' }}>
+              <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/>
+              <path d="M12 16v-4"/>
+              <path d="M12 8h.01"/>
+            </svg>
+            <h2 style={{ color: 'var(--text-white)', fontSize: '1.6rem', marginBottom: '0.5rem' }}>No Integrations Configured</h2>
+            <p style={{ color: 'var(--text-gray)', fontSize: '0.95rem' }}>
+              To start tracking telemetry runs, please configure at least one data platform or scheduler below.
+            </p>
+          </div>
+
+          <div className="table-responsive">
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left', padding: '12px', borderBottom: '1px solid rgba(255,255,255,0.08)', color: 'var(--text-muted)' }}>Platform</th>
+                  <th style={{ textAlign: 'left', padding: '12px', borderBottom: '1px solid rgba(255,255,255,0.08)', color: 'var(--text-muted)' }}>Type</th>
+                  <th style={{ textAlign: 'left', padding: '12px', borderBottom: '1px solid rgba(255,255,255,0.08)', color: 'var(--text-muted)' }}>Status</th>
+                  <th style={{ textAlign: 'right', padding: '12px', borderBottom: '1px solid rgba(255,255,255,0.08)', color: 'var(--text-muted)' }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                  <td style={{ padding: '16px 12px', fontWeight: '600', color: 'var(--text-white)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '1.25rem' }}>🧱</span> Databricks Jobs
+                  </td>
+                  <td style={{ padding: '16px 12px', color: 'var(--text-gray)', fontSize: '0.85rem' }}>Data Lakehouse / Spark</td>
+                  <td style={{ padding: '16px 12px' }}>
+                    <span className="badge badge-failed" style={{ fontSize: '0.75rem', padding: '3px 8px' }}>Not Connected</span>
+                  </td>
+                  <td style={{ padding: '16px 12px', textAlign: 'right' }}>
+                    <button className="btn btn-primary" onClick={onOpenConfig} style={{ fontSize: '0.8rem', padding: '6px 14px' }}>
+                      Configure Connection
+                    </button>
+                  </td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', opacity: 0.55 }}>
+                  <td style={{ padding: '16px 12px', fontWeight: '600', color: 'var(--text-white)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '1.25rem' }}>🌪️</span> Apache Airflow
+                  </td>
+                  <td style={{ padding: '16px 12px', color: 'var(--text-gray)', fontSize: '0.85rem' }}>Workflow Orchestrator</td>
+                  <td style={{ padding: '16px 12px' }}>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-gray)', border: '1px solid rgba(255,255,255,0.08)', padding: '2px 8px', borderRadius: '4px' }}>Coming Soon</span>
+                  </td>
+                  <td style={{ padding: '16px 12px', textAlign: 'right' }}>
+                    <button className="btn btn-secondary" disabled style={{ fontSize: '0.8rem', padding: '6px 14px', cursor: 'not-allowed' }}>
+                      Configure
+                    </button>
+                  </td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', opacity: 0.55 }}>
+                  <td style={{ padding: '16px 12px', fontWeight: '600', color: 'var(--text-white)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '1.25rem' }}>❄️</span> Snowflake Tasks
+                  </td>
+                  <td style={{ padding: '16px 12px', color: 'var(--text-gray)', fontSize: '0.85rem' }}>Data Warehouse Jobs</td>
+                  <td style={{ padding: '16px 12px' }}>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-gray)', border: '1px solid rgba(255,255,255,0.08)', padding: '2px 8px', borderRadius: '4px' }}>Coming Soon</span>
+                  </td>
+                  <td style={{ padding: '16px 12px', textAlign: 'right' }}>
+                    <button className="btn btn-secondary" disabled style={{ fontSize: '0.8rem', padding: '6px 14px', cursor: 'not-allowed' }}>
+                      Configure
+                    </button>
+                  </td>
+                </tr>
+                <tr style={{ opacity: 0.55 }}>
+                  <td style={{ padding: '16px 12px', fontWeight: '600', color: 'var(--text-white)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '1.25rem' }}>📊</span> dbt Cloud
+                  </td>
+                  <td style={{ padding: '16px 12px', color: 'var(--text-gray)', fontSize: '0.85rem' }}>Data Transformations</td>
+                  <td style={{ padding: '16px 12px' }}>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-gray)', border: '1px solid rgba(255,255,255,0.08)', padding: '2px 8px', borderRadius: '4px' }}>Coming Soon</span>
+                  </td>
+                  <td style={{ padding: '16px 12px', textAlign: 'right' }}>
+                    <button className="btn btn-secondary" disabled style={{ fontSize: '0.8rem', padding: '6px 14px', cursor: 'not-allowed' }}>
+                      Configure
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="dashboard-layout">
       {/* Main Dashboard Layout Grid (12 Columns) */}

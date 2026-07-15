@@ -1,13 +1,35 @@
 import os
 import sqlite3
+import base64
+from hashlib import sha256
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from dotenv import load_dotenv
+from cryptography.fernet import Fernet
 
 load_dotenv()
 
 DB_PATH = os.environ.get("PIPELINE_MONITOR_DB", "pipeline_monitor.db")
+
+# Symmetric encryption setup for Databricks tokens
+_secret = os.environ.get("ENCRYPTION_KEY", "fallback-secret-for-databricks-token-encryption-2026")
+_key = base64.urlsafe_b64encode(sha256(_secret.encode("utf-8")).digest())
+cipher = Fernet(_key)
+
+def encrypt_token(token: str) -> str:
+    if not token:
+        return ""
+    return cipher.encrypt(token.encode("utf-8")).decode("utf-8")
+
+def decrypt_token(encrypted_token: str) -> str:
+    if not encrypted_token:
+        return ""
+    try:
+        return cipher.decrypt(encrypted_token.encode("utf-8")).decode("utf-8")
+    except Exception:
+        # Fallback to plain text in case of unencrypted data or transition
+        return encrypted_token
 
 
 class JobSchema(BaseModel):
@@ -64,78 +86,138 @@ def init_db():
     with get_db_connection() as conn:
         cursor = conn.cursor()
         
-        # Create jobs table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS jobs (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                source TEXT NOT NULL,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+        # Check jobs table and migrate if needed
+        cursor.execute("PRAGMA table_info(jobs)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if columns and "username" not in columns:
+            cursor.execute("ALTER TABLE jobs RENAME TO jobs_old")
+            cursor.execute("""
+                CREATE TABLE jobs (
+                    id TEXT,
+                    username TEXT NOT NULL DEFAULT '',
+                    name TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id, username)
+                )
+            """)
+            cursor.execute("INSERT INTO jobs (id, username, name, source, created_at) SELECT id, '', name, source, created_at FROM jobs_old")
+            cursor.execute("DROP TABLE jobs_old")
+        elif not columns:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS jobs (
+                    id TEXT,
+                    username TEXT NOT NULL DEFAULT '',
+                    name TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id, username)
+                )
+            """)
         
-        # Create job_runs table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS job_runs (
-                id TEXT PRIMARY KEY,
-                job_id TEXT NOT NULL,
-                job_name TEXT NOT NULL,
-                status TEXT NOT NULL,
-                start_time TEXT NOT NULL,
-                end_time TEXT,
-                duration REAL NOT NULL,
-                rows_read INTEGER DEFAULT 0,
-                rows_written INTEGER DEFAULT 0,
-                error_message TEXT,
-                collected_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY(job_id) REFERENCES jobs(id)
-            )
-        """)
+        # Check job_runs table and migrate if needed
+        cursor.execute("PRAGMA table_info(job_runs)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if columns and "username" not in columns:
+            cursor.execute("ALTER TABLE job_runs RENAME TO job_runs_old")
+            cursor.execute("""
+                CREATE TABLE job_runs (
+                    id TEXT,
+                    username TEXT NOT NULL DEFAULT '',
+                    job_id TEXT NOT NULL,
+                    job_name TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    start_time TEXT NOT NULL,
+                    end_time TEXT,
+                    duration REAL NOT NULL,
+                    rows_read INTEGER DEFAULT 0,
+                    rows_written INTEGER DEFAULT 0,
+                    error_message TEXT,
+                    collected_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id, username),
+                    FOREIGN KEY(job_id, username) REFERENCES jobs(id, username)
+                )
+            """)
+            cursor.execute("""
+                INSERT INTO job_runs (id, username, job_id, job_name, status, start_time, end_time, duration, rows_read, rows_written, error_message, collected_at)
+                SELECT id, '', job_id, job_name, status, start_time, end_time, duration, rows_read, rows_written, error_message, collected_at FROM job_runs_old
+            """)
+            cursor.execute("DROP TABLE job_runs_old")
+        elif not columns:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS job_runs (
+                    id TEXT,
+                    username TEXT NOT NULL DEFAULT '',
+                    job_id TEXT NOT NULL,
+                    job_name TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    start_time TEXT NOT NULL,
+                    end_time TEXT,
+                    duration REAL NOT NULL,
+                    rows_read INTEGER DEFAULT 0,
+                    rows_written INTEGER DEFAULT 0,
+                    error_message TEXT,
+                    collected_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id, username),
+                    FOREIGN KEY(job_id, username) REFERENCES jobs(id, username)
+                )
+            """)
         
         # Create indexes for performance optimization
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_runs_job_id_start_time ON job_runs(job_id, start_time DESC)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_runs_status ON job_runs(status)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_runs_start_time ON job_runs(start_time DESC)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_runs_job_id_username_start_time ON job_runs(job_id, username, start_time DESC)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_runs_status_username ON job_runs(status, username)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_runs_username_start_time ON job_runs(username, start_time DESC)")
         
         # Create users table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 username TEXT PRIMARY KEY,
                 password_hash TEXT NOT NULL,
+                databricks_host TEXT,
+                databricks_token TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # In case the table existed without these columns:
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN databricks_host TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN databricks_token TEXT")
+        except sqlite3.OperationalError:
+            pass
         conn.commit()
 
-def upsert_job(job: JobSchema):
+def upsert_job(job: JobSchema, username: str):
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO jobs (id, name, source, created_at)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
+            INSERT INTO jobs (id, username, name, source, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(id, username) DO UPDATE SET
                 name = excluded.name,
                 source = excluded.source
-        """, (job.id, job.name, job.source, job.created_at))
+        """, (job.id, username, job.name, job.source, job.created_at))
         conn.commit()
 
-def upsert_job_run(run: JobRunSchema):
+def upsert_job_run(run: JobRunSchema, username: str):
     # First, make sure the job exists (mock insert if not exists)
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT 1 FROM jobs WHERE id = ?", (run.job_id,))
+        cursor.execute("SELECT 1 FROM jobs WHERE id = ? AND username = ?", (run.job_id, username))
         if not cursor.fetchone():
             cursor.execute("""
-                INSERT INTO jobs (id, name, source, created_at)
-                VALUES (?, ?, ?, datetime('now'))
-            """, (run.job_id, run.job_name, "databricks"))
+                INSERT INTO jobs (id, username, name, source, created_at)
+                VALUES (?, ?, ?, ?, datetime('now'))
+            """, (run.job_id, username, run.job_name, "databricks"))
         
         collected_at = run.collected_at or datetime.utcnow().isoformat()
         
         cursor.execute("""
-            INSERT INTO job_runs (id, job_id, job_name, status, start_time, end_time, duration, rows_read, rows_written, error_message, collected_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
+            INSERT INTO job_runs (id, username, job_id, job_name, status, start_time, end_time, duration, rows_read, rows_written, error_message, collected_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id, username) DO UPDATE SET
                 status = excluded.status,
                 end_time = excluded.end_time,
                 duration = excluded.duration,
@@ -144,31 +226,34 @@ def upsert_job_run(run: JobRunSchema):
                 error_message = excluded.error_message,
                 collected_at = excluded.collected_at
         """, (
-            run.id, run.job_id, run.job_name, run.status,
+            run.id, username, run.job_id, run.job_name, run.status,
             run.start_time, run.end_time, run.duration,
             run.rows_read, run.rows_written, run.error_message,
             collected_at
         ))
         conn.commit()
 
-def get_all_jobs() -> List[Dict[str, Any]]:
+def get_all_jobs(username: str) -> List[Dict[str, Any]]:
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM jobs ORDER BY name ASC")
+        cursor.execute("SELECT * FROM jobs WHERE username = ? ORDER BY name ASC", (username,))
         return [dict(row) for row in cursor.fetchall()]
 
-def get_job_runs(limit: int = 100, status: Optional[str] = None, job_id: Optional[str] = None) -> List[Dict[str, Any]]:
+def get_job_runs(limit: int = 100, status: Optional[str] = None, job_id: Optional[str] = None, username: Optional[str] = None) -> List[Dict[str, Any]]:
     with get_db_connection() as conn:
         cursor = conn.cursor()
         query = """
-            SELECT jr.id, jr.job_id, jr.job_name, jr.status, jr.start_time, jr.end_time, 
+            SELECT jr.id, jr.username, jr.job_id, jr.job_name, jr.status, jr.start_time, jr.end_time, 
                    jr.duration, jr.rows_read, jr.rows_written, jr.error_message, 
                    jr.collected_at, j.source
             FROM job_runs jr
-            JOIN jobs j ON jr.job_id = j.id
+            JOIN jobs j ON jr.job_id = j.id AND jr.username = j.username
         """
         conditions = []
         params = []
+        if username is not None:
+            conditions.append("jr.username = ?")
+            params.append(username)
         if status:
             conditions.append("jr.status = ?")
             params.append(status)
@@ -186,27 +271,27 @@ def get_job_runs(limit: int = 100, status: Optional[str] = None, job_id: Optiona
         return [dict(row) for row in cursor.fetchall()]
 
 
-def get_kpis() -> KPISchema:
+def get_kpis(username: str) -> KPISchema:
     with get_db_connection() as conn:
         cursor = conn.cursor()
         
-        cursor.execute("SELECT COUNT(*) FROM job_runs")
+        cursor.execute("SELECT COUNT(*) FROM job_runs WHERE username = ?", (username,))
         total_runs = cursor.fetchone()[0]
         
-        cursor.execute("SELECT COUNT(*) FROM job_runs WHERE status = 'SUCCESS'")
+        cursor.execute("SELECT COUNT(*) FROM job_runs WHERE status = 'SUCCESS' AND username = ?", (username,))
         success_runs = cursor.fetchone()[0]
         
-        cursor.execute("SELECT COUNT(*) FROM job_runs WHERE status = 'FAILED'")
+        cursor.execute("SELECT COUNT(*) FROM job_runs WHERE status = 'FAILED' AND username = ?", (username,))
         failed_runs = cursor.fetchone()[0]
         
-        cursor.execute("SELECT COUNT(*) FROM job_runs WHERE status = 'RUNNING'")
+        cursor.execute("SELECT COUNT(*) FROM job_runs WHERE status = 'RUNNING' AND username = ?", (username,))
         running_runs = cursor.fetchone()[0]
         
-        cursor.execute("SELECT AVG(duration) FROM job_runs WHERE status IN ('SUCCESS', 'FAILED')")
+        cursor.execute("SELECT AVG(duration) FROM job_runs WHERE status IN ('SUCCESS', 'FAILED') AND username = ?", (username,))
         avg_duration_row = cursor.fetchone()
         avg_duration = avg_duration_row[0] if avg_duration_row and avg_duration_row[0] is not None else 0.0
         
-        cursor.execute("SELECT SUM(rows_read), SUM(rows_written) FROM job_runs")
+        cursor.execute("SELECT SUM(rows_read), SUM(rows_written) FROM job_runs WHERE username = ?", (username,))
         totals_row = cursor.fetchone()
         total_rows_read = totals_row[0] if totals_row and totals_row[0] is not None else 0
         total_rows_written = totals_row[1] if totals_row and totals_row[1] is not None else 0
@@ -224,15 +309,16 @@ def get_kpis() -> KPISchema:
             total_rows_written=total_rows_written
         )
 
-def get_duration_history(limit: int = 50) -> List[DurationPointSchema]:
+def get_duration_history(limit: int = 50, username: str = "") -> List[DurationPointSchema]:
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
             SELECT job_name, id as run_id, start_time, duration, status
             FROM job_runs
+            WHERE username = ?
             ORDER BY start_time ASC
             LIMIT ?
-        """, (limit,))
+        """, (username, limit))
         rows = cursor.fetchall()
         return [
             DurationPointSchema(
@@ -257,8 +343,35 @@ def create_user(username: str, password_hash: str):
 def get_user(username: str) -> Optional[Dict[str, Any]]:
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT username, password_hash, created_at FROM users WHERE username = ?", (username,))
+        cursor.execute("SELECT username, password_hash, databricks_host, databricks_token, created_at FROM users WHERE username = ?", (username,))
         row = cursor.fetchone()
         if row:
             return dict(row)
         return None
+
+def update_user_config(username: str, host: str, token: str):
+    encrypted = encrypt_token(token)
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE users
+            SET databricks_host = ?, databricks_token = ?
+            WHERE username = ?
+        """, (host, encrypted, username))
+        conn.commit()
+
+def get_user_config(username: str) -> Optional[Dict[str, Any]]:
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT databricks_host, databricks_token FROM users WHERE username = ?", (username,))
+        row = cursor.fetchone()
+        if row:
+            decrypted = decrypt_token(row["databricks_token"] or "")
+            return {"databricks_host": row["databricks_host"] or "", "databricks_token": decrypted}
+        return None
+
+def get_users_without_config() -> List[str]:
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT username FROM users WHERE databricks_host IS NULL OR databricks_host = ''")
+        return [row["username"] for row in cursor.fetchall()]

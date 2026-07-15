@@ -6,6 +6,7 @@ import Dashboard from './components/Dashboard'
 import JobDetailModal from './components/JobDetailModal'
 import KpiBreakdownModal from './components/KpiBreakdownModal'
 import LoginPage from './components/LoginPage'
+import ConfigModal from './components/ConfigModal'
 import './App.css'
 
 function AppContent() {
@@ -75,6 +76,12 @@ function AppContent() {
 
   // Config settings
   const [config, setConfig] = useState(null)
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false)
+
+  const handleSaveConfigSuccess = (newConfig) => {
+    setConfig(newConfig)
+    setSyncCount(prev => prev + 1)
+  }
 
   // Landing page mock pipeline simulation
   const [pipelineSteps, setPipelineSteps] = useState([
@@ -131,7 +138,12 @@ function AppContent() {
   // Load config on mount
   useEffect(() => {
     if (view !== 'dashboard') return
-    fetch('/api/config')
+    const activeToken = localStorage.getItem('token')
+    if (!activeToken) return
+
+    fetch('/api/config', {
+      headers: { 'Authorization': `Bearer ${activeToken}` }
+    })
       .then(res => {
         if (res.ok) return res.json()
       })
@@ -139,7 +151,7 @@ function AppContent() {
         if (data) setConfig(data)
       })
       .catch(err => console.error('Error fetching config:', err))
-  }, [view])
+  }, [view, syncCount])
 
   // Fetch telemetry from local FastAPI server
   const fetchDashboardData = useCallback(async (succLimit, failLimit) => {
@@ -357,6 +369,7 @@ function AppContent() {
         onNavigate={navigate} 
         username={username}
         onLogout={handleLogout}
+        onOpenConfig={() => setIsConfigModalOpen(true)}
       />
 
       {/* VIEW 1: LANDING PAGE */}
@@ -382,6 +395,8 @@ function AppContent() {
           handleScroll={handleScroll}
           handleJobClick={handleJobClick}
           setIsKpiModalOpen={setIsKpiModalOpen}
+          config={config}
+          onOpenConfig={() => setIsConfigModalOpen(true)}
         />
       )}
 
@@ -406,6 +421,13 @@ function AppContent() {
         isOpen={isKpiModalOpen}
         onClose={() => setIsKpiModalOpen(false)}
         kpis={kpis}
+      />
+
+      {/* Databricks Connection Configuration Modal */}
+      <ConfigModal
+        isOpen={isConfigModalOpen}
+        onClose={() => setIsConfigModalOpen(false)}
+        onSaveSuccess={handleSaveConfigSuccess}
       />
 
     </div>

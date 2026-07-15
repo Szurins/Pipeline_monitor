@@ -1,6 +1,6 @@
 import { memo } from 'react'
 
-const Navbar = memo(({ view, isSyncing, onNavigate, username, onLogout }) => {
+const Navbar = memo(({ view, isSyncing, onNavigate, username, onLogout, onOpenConfig }) => {
   return (
     <nav className="navbar">
       <div className="logo-area" onClick={() => onNavigate('/')} style={{ cursor: 'pointer' }}>
@@ -29,9 +29,12 @@ const Navbar = memo(({ view, isSyncing, onNavigate, username, onLogout }) => {
               </div>
             )}
             {username && (
-              <span style={{ fontSize: '0.85rem', color: 'var(--text-gray)' }}>
-                User: <span style={{ color: 'var(--c-running)', fontWeight: '600' }}>{username}</span>
-              </span>
+              <>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-gray)' }}>
+                  User: <span style={{ color: 'var(--c-running)', fontWeight: '600' }}>{username}</span>
+                </span>
+                <button className="btn btn-secondary" onClick={onOpenConfig}>Databricks Config</button>
+              </>
             )}
             <button className="btn btn-secondary" onClick={() => onNavigate('/')}>Home</button>
             {username ? (
