@@ -48,8 +48,9 @@ const KpiBreakdownModal = memo(({ isOpen, onClose, kpis }) => {
     if (!isOpen || !canvasRef.current) return
 
     if (chartInstanceRef.current) {
-      chartInstanceRef.current.destroy()
-      chartInstanceRef.current = null
+      chartInstanceRef.current.data.datasets[0].data = [succeeded, failed, running]
+      chartInstanceRef.current.update()
+      return
     }
 
     const ctx = canvasRef.current.getContext('2d')

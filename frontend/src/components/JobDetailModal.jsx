@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import Chart from 'chart.js/auto'
 import { formatDate } from '../utils/helpers'
 
-const JobDetailModal = memo(({ activeJob, onClose, syncCount }) => {
+const JobDetailModal = memo(({ activeJob, onClose, syncCount, config }) => {
   const dialogRef = useRef(null)
   const [jobRuns, setJobRuns] = useState([])
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
@@ -95,19 +95,17 @@ const JobDetailModal = memo(({ activeJob, onClose, syncCount }) => {
     }
   }
 
+  const chronRunsRef = useRef([])
+  chronRunsRef.current = [...jobRuns].reverse()
+
   // Chart.js initialization
   useEffect(() => {
     if (!isOpen || !activeJob || !canvasRef.current || jobRuns.length === 0) {
       return
     }
 
-    if (chartInstanceRef.current) {
-      chartInstanceRef.current.destroy()
-      chartInstanceRef.current = null
-    }
-
     const ctx = canvasRef.current.getContext('2d')
-    const chronRuns = [...jobRuns].reverse()
+    const chronRuns = chronRunsRef.current
     const labels = chronRuns.map((_, i) => `Run ${chronRuns.length - i}`)
     const data = chronRuns.map(r => r.duration)
     
@@ -116,6 +114,16 @@ const JobDetailModal = memo(({ activeJob, onClose, syncCount }) => {
     gradient.addColorStop(1, 'rgba(14, 165, 233, 0.00)')
 
     const pointColors = chronRuns.map(r => r.status === 'SUCCESS' ? '#10b981' : '#ef4444')
+
+    if (chartInstanceRef.current) {
+      chartInstanceRef.current.data.labels = labels
+      chartInstanceRef.current.data.datasets[0].data = data
+      chartInstanceRef.current.data.datasets[0].backgroundColor = gradient
+      chartInstanceRef.current.data.datasets[0].pointBackgroundColor = pointColors
+      chartInstanceRef.current.data.datasets[0].pointHoverBackgroundColor = pointColors
+      chartInstanceRef.current.update()
+      return
+    }
 
     chartInstanceRef.current = new Chart(ctx, {
       type: 'line',
@@ -145,7 +153,7 @@ const JobDetailModal = memo(({ activeJob, onClose, syncCount }) => {
         onClick: (event, activeElements) => {
           if (activeElements && activeElements.length > 0) {
             const index = activeElements[0].index
-            const run = chronRuns[index]
+            const run = chronRunsRef.current[index]
             setSelectedRun(run)
           }
         },
@@ -163,12 +171,12 @@ const JobDetailModal = memo(({ activeJob, onClose, syncCount }) => {
             callbacks: {
               title: (context) => {
                 const index = context[0].dataIndex
-                const run = chronRuns[index]
+                const run = chronRunsRef.current[index]
                 return `Run ID: ${run.id.substring(0, 12)}...`
               },
               label: (context) => {
                 const index = context.dataIndex
-                const run = chronRuns[index]
+                const run = chronRunsRef.current[index]
                 const dateStr = new Date(run.start_time).toLocaleString()
                 return [
                   `Status: ${run.status}`,
@@ -219,9 +227,39 @@ const JobDetailModal = memo(({ activeJob, onClose, syncCount }) => {
           <div className="modal-header">
             <div>
               <span className="modal-subtitle">Pipeline Drill-Down Logs & Telemetry</span>
-              <h3>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                 {activeJob.name}
                 <span className={`source-badge ${activeJob.source}`}>{activeJob.source}</span>
+                {activeJob.source === 'databricks' && config?.databricks_host && (
+                  <a
+                    href={`https://${config.databricks_host}/#job/${activeJob.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="job-external-link"
+                    title="Open this specific job in Databricks Workspace"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      fontSize: '0.8rem',
+                      color: 'var(--c-running)',
+                      textDecoration: 'none',
+                      padding: '4px 8px',
+                      background: 'rgba(14, 165, 233, 0.1)',
+                      border: '1px solid rgba(14, 165, 233, 0.25)',
+                      borderRadius: '6px',
+                      fontWeight: 500,
+                      transition: 'all 0.2s ease-in-out'
+                    }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                      <polyline points="15 3 21 3 21 9"></polyline>
+                      <line x1="10" y1="14" x2="21" y2="3"></line>
+                    </svg>
+                    Open in Databricks
+                  </a>
+                )}
               </h3>
             </div>
             <button className="modal-close-btn" onClick={onClose}>&times;</button>

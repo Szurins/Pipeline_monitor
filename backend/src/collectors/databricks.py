@@ -120,7 +120,7 @@ class DatabricksCollector(BaseCollector):
                 elif life_state == RunLifeCycleState.TERMINATED:
                     if result_state == RunResultState.SUCCESS:
                         status = "SUCCESS"
-                    elif result_state in [RunResultState.FAILED, RunResultState.TIMED_OUT]:
+                    elif result_state and result_state.value in ["FAILED", "TIMEDOUT"]:
                         status = "FAILED"
                     else:
                         # Canceled or other states

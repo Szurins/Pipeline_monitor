@@ -40,6 +40,9 @@ function AppContent() {
   // Sync state
   const [isSyncing, setIsSyncing] = useState(false)
 
+  // Config settings
+  const [config, setConfig] = useState(null)
+
   // Landing page mock pipeline simulation
   const [pipelineSteps, setPipelineSteps] = useState([
     { name: 'dbx_ingestion_users', status: 'SUCCESS', type: 'Ingest', duration: '42s', rows: '34,250' },
@@ -92,6 +95,19 @@ function AppContent() {
     return () => clearInterval(interval)
   }, [view])
 
+  // Load config on mount
+  useEffect(() => {
+    if (view !== 'dashboard') return
+    fetch('/api/config')
+      .then(res => {
+        if (res.ok) return res.json()
+      })
+      .then(data => {
+        if (data) setConfig(data)
+      })
+      .catch(err => console.error('Error fetching config:', err))
+  }, [view])
+
   // Fetch telemetry from local FastAPI server
   const fetchDashboardData = useCallback(async (succLimit, failLimit) => {
     try {
@@ -126,6 +142,9 @@ function AppContent() {
   // Automatic background sync and polling loop (runs every 30 seconds)
   useEffect(() => {
     if (view !== 'dashboard') return
+    
+    // Pause all background sync and polling while a modal window is open to prevent charts from flashing
+    if (activeJob !== null || isKpiModalOpen) return
 
     // Immediately fetch initial dashboard data
     fetchDashboardData(succeededLimit, failedLimit)
@@ -160,7 +179,7 @@ function AppContent() {
       clearInterval(interval)
       clearInterval(dbPollInterval)
     }
-  }, [view, succeededLimit, failedLimit, fetchDashboardData])
+  }, [view, succeededLimit, failedLimit, fetchDashboardData, activeJob, isKpiModalOpen])
 
   // Handle click on specific job (instant modal feedback with specific clicked run id)
   const handleJobClick = useCallback((jobId, jobName, jobSource, targetRunId) => {
@@ -326,6 +345,7 @@ function AppContent() {
         activeJob={activeJob}
         onClose={handleCloseModal}
         syncCount={syncCount}
+        config={config}
       />
 
       {/* KPI Breakdown Circle Graph Modal */}

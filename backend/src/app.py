@@ -241,6 +241,13 @@ async def get_anomalies():
         logger.error(f"Error computing anomalies: {e}")
         raise HTTPException(status_code=500, detail="Database fetch failed")
 
+@app.get("/api/config")
+async def get_config():
+    """Returns configuration settings like Databricks Host URL."""
+    return {
+        "databricks_host": os.environ.get("DATABRICKS_HOST", "")
+    }
+
 @app.get("/api/test-connection")
 async def test_databricks_connection():
     """

@@ -1230,4 +1230,9 @@ dialog.native-modal[open] .modal-container {
   padding: 4rem 0;
 }
 
-
+.job-external-link:hover {
+  background: rgba(14, 165, 233, 0.22) !important;
+  border-color: rgba(14, 165, 233, 0.6) !important;
+  color: #38bdf8 !important;
+  transform: translateY(-1px);
+}
