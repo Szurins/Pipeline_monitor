@@ -5,14 +5,47 @@ import LandingPage from './components/LandingPage'
 import Dashboard from './components/Dashboard'
 import JobDetailModal from './components/JobDetailModal'
 import KpiBreakdownModal from './components/KpiBreakdownModal'
+import LoginPage from './components/LoginPage'
 import './App.css'
 
 function AppContent() {
   const navigate = useNavigate()
   const location = useLocation()
   
+  // Auth States
+  const [token, setToken] = useState(() => localStorage.getItem('token') || null)
+  const [username, setUsername] = useState(() => localStorage.getItem('username') || null)
+
   // Route-based view derivation
-  const view = location.pathname === '/dashboard' ? 'dashboard' : 'landing'
+  let view = 'landing'
+  if (location.pathname === '/dashboard') {
+    view = 'dashboard'
+  } else if (location.pathname === '/login') {
+    view = 'login'
+  }
+  
+  // Redirect dashboard if not logged in
+  useEffect(() => {
+    if (view === 'dashboard' && !token) {
+      navigate('/login')
+    }
+  }, [view, token, navigate])
+
+  const handleLoginSuccess = (newToken, newUsername) => {
+    localStorage.setItem('token', newToken)
+    localStorage.setItem('username', newUsername)
+    setToken(newToken)
+    setUsername(newUsername)
+    navigate('/dashboard')
+  }
+
+  const handleLogout = () => {
+    localStorage.removeItem('token')
+    localStorage.removeItem('username')
+    setToken(null)
+    setUsername(null)
+    navigate('/')
+  }
   
   // Dashboard Telemetry States
   const [kpis, setKpis] = useState(null)
@@ -110,26 +143,30 @@ function AppContent() {
 
   // Fetch telemetry from local FastAPI server
   const fetchDashboardData = useCallback(async (succLimit, failLimit) => {
+    const activeToken = localStorage.getItem('token')
+    if (!activeToken) return
+    const headers = { 'Authorization': `Bearer ${activeToken}` }
+
     try {
-      const kpisRes = await fetch('/api/kpis')
+      const kpisRes = await fetch('/api/kpis', { headers })
       if (kpisRes.ok) {
         const kpisData = await kpisRes.json()
         setKpis(kpisData)
       }
 
-      const succRes = await fetch(`/api/runs?status=SUCCESS&limit=${succLimit}`)
+      const succRes = await fetch(`/api/runs?status=SUCCESS&limit=${succLimit}`, { headers })
       if (succRes.ok) {
         const succData = await succRes.json()
         setSucceededRuns(succData)
       }
 
-      const failRes = await fetch(`/api/runs?status=FAILED&limit=${failLimit}`)
+      const failRes = await fetch(`/api/runs?status=FAILED&limit=${failLimit}`, { headers })
       if (failRes.ok) {
         const failData = await failRes.json()
         setFailedRuns(failData)
       }
 
-      const anomaliesRes = await fetch('/api/anomalies')
+      const anomaliesRes = await fetch('/api/anomalies', { headers })
       if (anomaliesRes.ok) {
         const anomaliesData = await anomaliesRes.json()
         setAnomalies(anomaliesData)
@@ -151,9 +188,15 @@ function AppContent() {
 
     // Trigger POST /api/collect sync followed by refresh
     const performBackgroundSync = async () => {
+      const activeToken = localStorage.getItem('token')
+      if (!activeToken) return
+
       setIsSyncing(true)
       try {
-        const res = await fetch('/api/collect', { method: 'POST' })
+        const res = await fetch('/api/collect', { 
+          method: 'POST', 
+          headers: { 'Authorization': `Bearer ${activeToken}` }
+        })
         if (res.ok) {
           await fetchDashboardData(succeededLimit, failedLimit)
           setSyncCount(prev => prev + 1)
@@ -312,6 +355,8 @@ function AppContent() {
         view={view} 
         isSyncing={isSyncing} 
         onNavigate={navigate} 
+        username={username}
+        onLogout={handleLogout}
       />
 
       {/* VIEW 1: LANDING PAGE */}
@@ -337,6 +382,14 @@ function AppContent() {
           handleScroll={handleScroll}
           handleJobClick={handleJobClick}
           setIsKpiModalOpen={setIsKpiModalOpen}
+        />
+      )}
+
+      {/* VIEW 3: LOGIN / SIGNUP PAGE */}
+      {view === 'login' && (
+        <LoginPage 
+          onLoginSuccess={handleLoginSuccess}
+          onNavigate={navigate}
         />
       )}
 

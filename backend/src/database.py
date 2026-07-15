@@ -96,6 +96,15 @@ def init_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_runs_job_id_start_time ON job_runs(job_id, start_time DESC)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_runs_status ON job_runs(status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_job_runs_start_time ON job_runs(start_time DESC)")
+        
+        # Create users table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                username TEXT PRIMARY KEY,
+                password_hash TEXT NOT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         conn.commit()
 
 def upsert_job(job: JobSchema):
@@ -235,3 +244,21 @@ def get_duration_history(limit: int = 50) -> List[DurationPointSchema]:
             )
             for row in rows
         ]
+
+def create_user(username: str, password_hash: str):
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO users (username, password_hash)
+            VALUES (?, ?)
+        """, (username, password_hash))
+        conn.commit()
+
+def get_user(username: str) -> Optional[Dict[str, Any]]:
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT username, password_hash, created_at FROM users WHERE username = ?", (username,))
+        row = cursor.fetchone()
+        if row:
+            return dict(row)
+        return None

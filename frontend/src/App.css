@@ -1212,6 +1212,201 @@ dialog.native-modal[open] .modal-container {
 
 .modal-description {
   font-size: 0.85rem;
+}
+
+.error-text-cell {
+  color: #fca5a5;
+  font-family: monospace;
+  font-size: 0.78rem;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  white-space: nowrap;
+}
+
+/* Animations */
+.animate-slide-down {
+  animation: slideDown 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Sticky Headers */
+.table-card th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background-color: rgb(18, 25, 41);
+}
+
+/* Clickable Table Rows */
+.clickable-row {
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.clickable-row:hover td {
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+/* ==========================================================================
+   MODAL WINDOW (POP-UP) STYLES
+   ========================================================================== */
+
+/* Native dialog modal styles */
+dialog.native-modal {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: auto;
+  width: 100vw;
+  height: 100vh;
+  max-width: 100vw;
+  max-height: 100vh;
+  outline: none;
+  display: none;
+}
+
+dialog.native-modal[open] {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+dialog.native-modal::backdrop {
+  background-color: rgba(6, 9, 17, 0.88);
+}
+
+dialog.native-modal .modal-container {
+  transform: scale(0.96);
+  opacity: 0;
+  transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.22s ease-out;
+}
+
+dialog.native-modal[open] .modal-container {
+  transform: scale(1);
+  opacity: 1;
+}
+
+.modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: rgba(6, 9, 17, 0.88);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.modal-backdrop.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.modal-container {
+  background: var(--bg-card);
+  border: 1px solid var(--border-glass);
+  border-radius: 20px;
+  width: 95%;
+  max-width: 1000px;
+  height: auto;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  padding: 2rem;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.55);
+  position: relative;
+  transform: scale(0.96);
+  transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.modal-container.modal-small {
+  max-width: 500px;
+  padding: 1.75rem;
+}
+
+.modal-backdrop.active .modal-container {
+  transform: scale(1);
+}
+
+.modal-body {
+  flex-grow: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.animate-scale-up {
+  animation: scaleUp 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleUp {
+  from { transform: scale(0.92); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  padding-bottom: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.modal-header h3 {
+  font-family: 'Outfit', sans-serif;
+  font-size: 1.35rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  color: var(--text-white);
+  margin-top: 0.2rem;
+}
+
+.modal-subtitle {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  display: block;
+}
+
+.modal-close-btn {
+  background: none;
+  border: none;
+  color: var(--text-gray);
+  font-size: 1.75rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 0.25rem;
+  transition: color 0.2s;
+  margin-top: -0.25rem;
+}
+
+.modal-close-btn:hover {
+  color: var(--text-white);
+}
+
+.modal-description {
+  font-size: 0.85rem;
   color: var(--text-gray);
   line-height: 1.4;
   margin-bottom: 1.5rem;
@@ -1235,4 +1430,137 @@ dialog.native-modal[open] .modal-container {
   border-color: rgba(14, 165, 233, 0.6) !important;
   color: #38bdf8 !important;
   transform: translateY(-1px);
+}
+
+/* ==========================================================================
+   LOGIN & SIGNUP PAGE STYLES
+   ========================================================================== */
+.login-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: calc(100vh - 120px);
+  padding: 2rem;
+  z-index: 10;
+}
+
+.login-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-glass);
+  border-radius: 20px;
+  width: 100%;
+  max-width: 420px;
+  padding: 2.5rem;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.login-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 1.85rem;
+  font-weight: 700;
+  color: var(--text-white);
+  margin-bottom: 0.5rem;
+  text-align: center;
+  background: linear-gradient(135deg, #a5b4fc 0%, #c084fc 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.login-subtitle {
+  font-size: 0.88rem;
+  color: var(--text-gray);
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.form-group {
+  margin-bottom: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.form-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-gray);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  text-align: left;
+}
+
+.form-input {
+  background: rgba(10, 14, 26, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  color: var(--text-white);
+  font-family: 'Inter', sans-serif;
+  font-size: 0.92rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+}
+
+.login-btn {
+  width: 100%;
+  padding: 0.75rem;
+  margin-top: 1rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.login-footer {
+  margin-top: 1.5rem;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--text-gray);
+}
+
+.login-link {
+  color: #a5b4fc;
+  cursor: pointer;
+  text-decoration: underline;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 600;
+}
+
+.login-link:hover {
+  color: var(--accent);
+}
+
+.alert-message {
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  margin-bottom: 1.25rem;
+  line-height: 1.4;
+  border: 1px solid transparent;
+}
+
+.alert-success {
+  background: rgba(16, 185, 129, 0.1);
+  color: #a7f3d0;
+  border-color: rgba(16, 185, 129, 0.2);
+}
+
+.alert-error {
+  background: rgba(239, 68, 68, 0.1);
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.2);
 }

@@ -58,7 +58,10 @@ const JobDetailModal = memo(({ activeJob, onClose, syncCount, config }) => {
     setIsLoadingHistory(true)
     setSelectedRun(null)
 
-    fetch(`/api/runs?job_id=${activeJob.id}&limit=30`)
+    const activeToken = localStorage.getItem('token')
+    const headers = activeToken ? { 'Authorization': `Bearer ${activeToken}` } : {}
+
+    fetch(`/api/runs?job_id=${activeJob.id}&limit=30`, { headers })
       .then(res => {
         if (res.ok) return res.json()
         throw new Error("Failed to fetch history")

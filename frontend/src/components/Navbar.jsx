@@ -1,6 +1,6 @@
 import { memo } from 'react'
 
-const Navbar = memo(({ view, isSyncing, onNavigate }) => {
+const Navbar = memo(({ view, isSyncing, onNavigate, username, onLogout }) => {
   return (
     <nav className="navbar">
       <div className="logo-area" onClick={() => onNavigate('/')} style={{ cursor: 'pointer' }}>
@@ -14,17 +14,31 @@ const Navbar = memo(({ view, isSyncing, onNavigate }) => {
         {view === 'landing' ? (
           <>
             <a href="#demo" className="nav-link">Live Telemetry</a>
-            <button className="btn btn-primary" onClick={() => onNavigate('/dashboard')}>Launch Dashboard</button>
+            {username ? (
+              <button className="btn btn-primary" onClick={() => onNavigate('/dashboard')}>Dashboard</button>
+            ) : (
+              <button className="btn btn-primary" onClick={() => onNavigate('/login')}>Sign In</button>
+            )}
           </>
         ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
             {isSyncing && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-gray)', fontSize: '0.85rem' }}>
                 <span className="inline-spinner"></span>
-                Syncing Databricks...
+                Syncing...
               </div>
             )}
+            {username && (
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-gray)' }}>
+                User: <span style={{ color: 'var(--c-running)', fontWeight: '600' }}>{username}</span>
+              </span>
+            )}
             <button className="btn btn-secondary" onClick={() => onNavigate('/')}>Home</button>
+            {username ? (
+              <button className="btn btn-secondary" onClick={onLogout}>Sign Out</button>
+            ) : (
+              <button className="btn btn-primary" onClick={() => onNavigate('/login')}>Sign In</button>
+            )}
           </div>
         )}
       </div>

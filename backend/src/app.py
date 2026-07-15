@@ -1,24 +1,63 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, Query, HTTPException, Depends
 from fastapi.responses import HTMLResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel
+import jwt
+import bcrypt
 import os
 import random
 import uuid
 from datetime import datetime, timedelta
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from dotenv import load_dotenv
 
 load_dotenv()
 
-
 from src.database import (
     init_db, get_kpis, get_job_runs, get_duration_history,
-    upsert_job_run, upsert_job, JobRunSchema, JobSchema
+    upsert_job_run, upsert_job, JobRunSchema, JobSchema,
+    create_user, get_user
 )
 from src.collectors.databricks import DatabricksCollector
 from src.data_generator import PIPELINES
+
+JWT_SECRET = os.environ.get("JWT_SECRET", "super-secret-key-change-in-production")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRATION_HOURS = 24
+
+security = HTTPBearer()
+
+class UserAuthSchema(BaseModel):
+    username: str
+    password: str
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+def verify_password(password: str, hashed: str) -> bool:
+    return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
+
+def create_jwt_token(username: str) -> str:
+    payload = {
+        "sub": username,
+        "exp": datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        username = payload.get("sub")
+        if username is None:
+            raise HTTPException(status_code=401, detail="Invalid token: missing subject")
+        return username
+    except jwt.PyJWTError as e:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
+
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -159,9 +198,36 @@ async def get_dashboard():
         html_content = f.read()
     return html_content
 
+# Authentication endpoints
+@app.post("/api/auth/register")
+async def register_user(payload: UserAuthSchema):
+    if not payload.username or not payload.password:
+        raise HTTPException(status_code=400, detail="Username and password are required")
+    
+    existing = get_user(payload.username)
+    if existing:
+        raise HTTPException(status_code=400, detail="Username already exists")
+    
+    hashed = hash_password(payload.password)
+    try:
+        create_user(payload.username, hashed)
+        return {"status": "success", "message": "User registered successfully"}
+    except Exception as e:
+        logger.error(f"Error registering user: {e}")
+        raise HTTPException(status_code=500, detail="Registration failed")
+
+@app.post("/api/auth/login")
+async def login_user(payload: UserAuthSchema):
+    user = get_user(payload.username)
+    if not user or not verify_password(payload.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    
+    token = create_jwt_token(payload.username)
+    return {"token": token, "username": payload.username}
+
 # REST API endpoints
 @app.get("/api/kpis")
-async def get_metrics():
+async def get_metrics(username: str = Depends(get_current_user)):
     """Returns aggregated KPI summary metrics."""
     try:
         return get_kpis()
@@ -170,7 +236,7 @@ async def get_metrics():
         raise HTTPException(status_code=500, detail="Database fetch failed")
 
 @app.get("/api/runs")
-async def get_runs(limit: int = 50, status: Optional[str] = None, job_id: Optional[str] = None):
+async def get_runs(limit: int = 50, status: Optional[str] = None, job_id: Optional[str] = None, username: str = Depends(get_current_user)):
     """Returns list of job runs filtered by status and/or job_id."""
     try:
         return get_job_runs(limit=limit, status=status, job_id=job_id)
@@ -179,7 +245,7 @@ async def get_runs(limit: int = 50, status: Optional[str] = None, job_id: Option
         raise HTTPException(status_code=500, detail="Database fetch failed")
 
 @app.get("/api/duration-history")
-async def get_durations(limit: int = 20):
+async def get_durations(limit: int = 20, username: str = Depends(get_current_user)):
     """Returns run duration series data for plotting charts."""
     try:
         return get_duration_history(limit=limit)
@@ -188,7 +254,7 @@ async def get_durations(limit: int = 20):
         raise HTTPException(status_code=500, detail="Database fetch failed")
 
 @app.get("/api/anomalies")
-async def get_anomalies():
+async def get_anomalies(username: str = Depends(get_current_user)):
     """Detects and returns pipeline runs that are weirdly long compared to their average durations."""
     try:
         from src.database import get_db_connection
@@ -249,7 +315,7 @@ async def get_config():
     }
 
 @app.get("/api/test-connection")
-async def test_databricks_connection():
+async def test_databricks_connection(username: str = Depends(get_current_user)):
     """
     Verifies connection and credentials to Databricks Workspace.
     Useful for diagnostic checks.
@@ -267,8 +333,7 @@ async def test_databricks_connection():
     }
 
 @app.post("/api/collect")
-
-async def collect_metadata():
+async def collect_metadata(username: str = Depends(get_current_user)):
     """
     Triggers an on-demand synchronization job.
     Fetches the latest job run configurations from Databricks API or simulates new ones.
@@ -331,3 +396,4 @@ async def collect_metadata():
             "message": f"Databricks credentials not configured. Simulated metadata fetch: ingested {new_runs_count} run logs.",
             "runs": inserted_runs
         }
+
