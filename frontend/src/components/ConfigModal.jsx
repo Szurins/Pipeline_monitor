@@ -114,14 +114,11 @@ const ConfigModal = memo(({ isOpen, onClose, onSaveSuccess }) => {
       })
       const data = await res.json()
       if (res.ok) {
-        setMsg({ type: 'success', text: 'Configuration saved successfully!' })
         setConfirmData(null)
         if (onSaveSuccess) {
-          onSaveSuccess({ databricks_host: host })
+          onSaveSuccess({ databricks_host: host, databricks_token: token })
         }
-        setTimeout(() => {
-          onClose()
-        }, 1200)
+        onClose()
       } else {
         setMsg({ type: 'error', text: data.detail || 'Failed to save configuration.' })
       }

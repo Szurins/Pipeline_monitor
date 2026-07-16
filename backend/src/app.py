@@ -53,6 +53,11 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         username = payload.get("sub")
         if username is None:
             raise HTTPException(status_code=401, detail="Invalid token: missing subject")
+        
+        # Verify user exists in the database
+        if not get_user(username):
+            raise HTTPException(status_code=401, detail="User session not found in database. Please register/login again.")
+            
         return username
     except jwt.PyJWTError as e:
         raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
@@ -226,6 +231,24 @@ async def save_config(payload: ConfigSchema, username: str = Depends(get_current
     except Exception as e:
         logger.error(f"Error saving config: {e}")
         raise HTTPException(status_code=500, detail="Failed to save configuration")
+
+@app.post("/api/config/unlink")
+async def unlink_config(username: str = Depends(get_current_user)):
+    """Unlinks Databricks configuration and clears the user's fetched job/run telemetry."""
+    try:
+        update_user_config(username, "", "")
+        
+        from src.database import get_db_connection
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM job_runs WHERE username = ?", (username,))
+            cursor.execute("DELETE FROM jobs WHERE username = ?", (username,))
+            conn.commit()
+            
+        return {"status": "success", "message": "Databricks workspace unlinked successfully."}
+    except Exception as e:
+        logger.error(f"Error unlinking config: {e}")
+        raise HTTPException(status_code=500, detail=f"Unlinking failed: {str(e)}")
 
 @app.post("/api/test-connection")
 async def test_databricks_connection(payload: ConfigSchema, username: str = Depends(get_current_user)):

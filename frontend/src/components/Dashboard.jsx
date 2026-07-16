@@ -16,9 +16,18 @@ const Dashboard = memo(({
   handleJobClick,
   setIsKpiModalOpen,
   config,
-  onOpenConfig
+  onOpenConfig,
+  isLoadingData
 }) => {
-  const hasConfig = config && (config.databricks_host || config.databricks_token);
+  if (config === null) {
+    return (
+      <main className="dashboard-layout" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '80vh' }}>
+        <div className="inline-spinner" style={{ width: '32px', height: '32px' }}></div>
+      </main>
+    )
+  }
+
+  const hasConfig = config.databricks_host || config.databricks_token;
 
   if (!hasConfig) {
     return (
@@ -286,7 +295,14 @@ const Dashboard = memo(({
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredSucceeded.length === 0 ? (
+                  {isLoadingData ? (
+                    <tr>
+                      <td colSpan="6" className="empty-row" style={{ height: '140px', verticalAlign: 'middle', textAlign: 'center' }}>
+                        <div className="inline-spinner" style={{ width: '28px', height: '28px', margin: '0 auto' }}></div>
+                        <div style={{ marginTop: '8px', fontSize: '0.8rem', color: 'var(--text-gray)' }}>Loading executions...</div>
+                      </td>
+                    </tr>
+                  ) : filteredSucceeded.length === 0 ? (
                     <tr><td colSpan="6" className="empty-row">No succeeded runs found</td></tr>
                   ) : (
                     filteredSucceeded.map(run => (
@@ -364,7 +380,14 @@ const Dashboard = memo(({
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredFailed.length === 0 ? (
+                  {isLoadingData ? (
+                    <tr>
+                      <td colSpan="6" className="empty-row" style={{ height: '140px', verticalAlign: 'middle', textAlign: 'center' }}>
+                        <div className="inline-spinner" style={{ width: '28px', height: '28px', margin: '0 auto' }}></div>
+                        <div style={{ marginTop: '8px', fontSize: '0.8rem', color: 'var(--text-gray)' }}>Loading executions...</div>
+                      </td>
+                    </tr>
+                  ) : filteredFailed.length === 0 ? (
                     <tr><td colSpan="6" className="empty-row">No failed runs found</td></tr>
                   ) : (
                     filteredFailed.map(run => (

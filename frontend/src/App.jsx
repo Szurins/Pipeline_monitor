@@ -73,6 +73,7 @@ function AppContent() {
 
   // Sync state
   const [isSyncing, setIsSyncing] = useState(false)
+  const [isLoadingData, setIsLoadingData] = useState(false)
 
   // Config settings
   const [config, setConfig] = useState(null)
@@ -81,6 +82,29 @@ function AppContent() {
   const handleSaveConfigSuccess = (newConfig) => {
     setConfig(newConfig)
     setSyncCount(prev => prev + 1)
+  }
+
+  const handleUnlinkConfig = async () => {
+    const activeToken = localStorage.getItem('token')
+    if (!activeToken) return
+    setIsSyncing(true)
+    try {
+      const res = await fetch('/api/config/unlink', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${activeToken}` }
+      })
+      if (res.ok) {
+        setConfig({ databricks_host: '', databricks_token: '' })
+        setSyncCount(prev => prev + 1)
+      } else {
+        alert("Failed to unlink configuration.")
+      }
+    } catch (err) {
+      console.error("Error unlinking config:", err)
+      alert("Error occurred while unlinking configuration.")
+    } finally {
+      setIsSyncing(false)
+    }
   }
 
   // Landing page mock pipeline simulation
@@ -145,6 +169,10 @@ function AppContent() {
       headers: { 'Authorization': `Bearer ${activeToken}` }
     })
       .then(res => {
+        if (res.status === 401) {
+          handleLogout()
+          return
+        }
         if (res.ok) return res.json()
       })
       .then(data => {
@@ -154,13 +182,20 @@ function AppContent() {
   }, [view, syncCount])
 
   // Fetch telemetry from local FastAPI server
-  const fetchDashboardData = useCallback(async (succLimit, failLimit) => {
+  const fetchDashboardData = useCallback(async (succLimit, failLimit, showSpinner = false) => {
     const activeToken = localStorage.getItem('token')
     if (!activeToken) return
     const headers = { 'Authorization': `Bearer ${activeToken}` }
 
+    if (showSpinner) {
+      setIsLoadingData(true)
+    }
     try {
       const kpisRes = await fetch('/api/kpis', { headers })
+      if (kpisRes.status === 401) {
+        handleLogout()
+        return
+      }
       if (kpisRes.ok) {
         const kpisData = await kpisRes.json()
         setKpis(kpisData)
@@ -185,6 +220,10 @@ function AppContent() {
       }
     } catch (err) {
       console.error('Error fetching dashboard telemetry:', err)
+    } finally {
+      if (showSpinner) {
+        setIsLoadingData(false)
+      }
     }
   }, [])
 
@@ -196,7 +235,7 @@ function AppContent() {
     if (activeJob !== null || isKpiModalOpen) return
 
     // Immediately fetch initial dashboard data
-    fetchDashboardData(succeededLimit, failedLimit)
+    fetchDashboardData(succeededLimit, failedLimit, kpis === null)
 
     // Trigger POST /api/collect sync followed by refresh
     const performBackgroundSync = async () => {
@@ -234,7 +273,7 @@ function AppContent() {
       clearInterval(interval)
       clearInterval(dbPollInterval)
     }
-  }, [view, succeededLimit, failedLimit, fetchDashboardData, activeJob, isKpiModalOpen])
+  }, [view, succeededLimit, failedLimit, fetchDashboardData, activeJob, isKpiModalOpen, kpis])
 
   // Handle click on specific job (instant modal feedback with specific clicked run id)
   const handleJobClick = useCallback((jobId, jobName, jobSource, targetRunId) => {
@@ -370,6 +409,8 @@ function AppContent() {
         username={username}
         onLogout={handleLogout}
         onOpenConfig={() => setIsConfigModalOpen(true)}
+        config={config}
+        onUnlinkConfig={handleUnlinkConfig}
       />
 
       {/* VIEW 1: LANDING PAGE */}
@@ -397,6 +438,7 @@ function AppContent() {
           setIsKpiModalOpen={setIsKpiModalOpen}
           config={config}
           onOpenConfig={() => setIsConfigModalOpen(true)}
+          isLoadingData={isLoadingData}
         />
       )}
 
